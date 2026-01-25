@@ -12,11 +12,11 @@ export function LandingPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-bg via-panel to-panel-2 p-8 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-[#030617] via-[#030617] to-[#030617] p-8 relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-primary/5 rounded-full blur-3xl opacity-50" />
-        <div className="absolute top-[40%] -right-[10%] w-[40%] h-[40%] bg-blue-500/5 rounded-full blur-3xl opacity-50" />
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-[#080d2c] rounded-full blur-3xl opacity-50" />
+        <div className="absolute top-[40%] -right-[10%] w-[40%] h-[40%] bg-[#080d2c] rounded-full blur-3xl opacity-50" />
       </div>
 
       <div className="text-center max-w-4xl relative z-10">
@@ -34,25 +34,25 @@ export function LandingPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 text-left">
-          <div className="bg-panel/50 p-6 rounded-xl border border-border backdrop-blur-sm">
+          <div className="bg-panel-2 p-6 rounded-xl border border-border backdrop-blur-sm">
             <Code2 className="w-8 h-8 text-primary mb-4" />
             <h3 className="text-lg font-semibold text-text mb-2">Editor</h3>
-            <p className="text-text-muted text-sm">
+            <p className="text-text/80 text-sm">
               Monaco-based code editor with syntax highlighting and multi-cursor
               support.
             </p>
           </div>
-          <div className="bg-panel/50 p-6 rounded-xl border border-border backdrop-blur-sm">
+          <div className="bg-panel-2 p-6 rounded-xl border border-border backdrop-blur-sm">
             <Monitor className="w-8 h-8 text-blue-500 mb-4" />
             <h3 className="text-lg font-semibold text-text mb-2">Whiteboard</h3>
-            <p className="text-text-muted text-sm">
+            <p className="text-text/80 text-sm">
               Interactive whiteboard for diagramming and visual explanations.
             </p>
           </div>
-          <div className="bg-panel/50 p-6 rounded-xl border border-border backdrop-blur-sm">
+          <div className="bg-panel-2 p-6 rounded-xl border border-border backdrop-blur-sm">
             <MessageSquare className="w-8 h-8 text-green-500 mb-4" />
             <h3 className="text-lg font-semibold text-text mb-2">Chat</h3>
-            <p className="text-text-muted text-sm">
+            <p className="text-text/80 text-sm">
               Real-time chat communication with other participants.
             </p>
           </div>

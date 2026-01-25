@@ -189,7 +189,7 @@ export function CodeEditor() {
         isRemoteChange.current = false;
         return;
       }
-      
+
       console.log('[CodeEditor] Remote change detected', event.delta);
 
       // Apply each delta
@@ -337,7 +337,7 @@ export function CodeEditor() {
       </div>
 
       {/* Editor container */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 ">
         <Editor
           height="100%"
           language={language}

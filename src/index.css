@@ -22,11 +22,12 @@
 
 /* Dark mode overrides */
 .dark {
-  --color-bg: #0f0f1a;
-  --color-panel: #1a1a2e;
+  --color-bg: #030617;
+  --color-panel: #030617;
   --color-panel-2: #16213e;
   --color-border: rgba(255, 255, 255, 0.1);
   --color-text: #ffffff;
+  --color-primary: #0ea5e9;
   --color-text-muted: #94a3b8;
   --color-primary-hover: #38bdf8;
 }
