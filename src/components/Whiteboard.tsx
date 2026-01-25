@@ -338,18 +338,25 @@ export function Whiteboard() {
     }
   }, [render]);
 
-  // Handle resize
+  // Handle resize - use ResizeObserver for container resizes (sidebar toggle)
   useLayoutEffect(() => {
     resizeCanvas();
     render();
 
-    const handleResize = () => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // ResizeObserver handles both window resize and sidebar toggle
+    const resizeObserver = new ResizeObserver(() => {
       resizeCanvas();
       render();
-    };
+    });
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
   }, [resizeCanvas, render]);
 
   // Subscribe to Yjs changes

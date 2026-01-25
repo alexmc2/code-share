@@ -136,3 +136,40 @@
     @apply bg-panel border border-border rounded-xl;
   }
 }
+
+/* Mobile drawer animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 300ms ease-out;
+}
+
+/* Extra small breakpoint (for very small phones) */
+@media (min-width: 400px) {
+  .xs\:inline {
+    display: inline !important;
+  }
+  .xs\:hidden {
+    display: none !important;
+  }
+}

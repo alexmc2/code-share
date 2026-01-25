@@ -64,7 +64,7 @@ export function Chat() {
   );
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 px-4 pb-4">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 px-4 pb-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-3 shrink-0">
         Chat
       </h3>
