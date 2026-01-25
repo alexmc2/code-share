@@ -1,5 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { nanoid } from 'nanoid';
+import { Button } from '../components/ui/button';
+import { Code2, Users, Monitor, MessageSquare, Terminal } from 'lucide-react';
 
 export function LandingPage() {
   const navigate = useNavigate();
@@ -10,31 +12,63 @@ export function LandingPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-bg via-panel to-panel-2 p-8">
-      <div className="text-center max-w-2xl">
-        <div className="mb-12">
-          <h1 className="text-5xl font-bold text-text flex items-center justify-center gap-2 mb-4">
-            <span className="text-primary font-mono">{'</>'}</span>
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-bg via-panel to-panel-2 p-8 relative overflow-hidden">
+      {/* Background decoration */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-primary/5 rounded-full blur-3xl opacity-50" />
+        <div className="absolute top-[40%] -right-[10%] w-[40%] h-[40%] bg-blue-500/5 rounded-full blur-3xl opacity-50" />
+      </div>
+
+      <div className="text-center max-w-4xl relative z-10">
+        <div className="mb-12 flex flex-col items-center">
+          <div className="w-20 h-20 bg-panel-2 rounded-2xl flex items-center justify-center mb-6 shadow-panel">
+            <Terminal className="w-10 h-10 text-primary" />
+          </div>
+          <h1 className="text-6xl font-bold text-text flex items-center justify-center gap-2 mb-6 tracking-tight">
             CodeShare
           </h1>
-          <p className="text-xl text-text-muted">
-            Real-time collaborative coding, no account needed
+          <p className="text-xl text-text-muted max-w-xl mx-auto leading-relaxed">
+            Instant, real-time collaborative coding environment. No signup
+            required, just share the link and start coding.
           </p>
         </div>
 
-        <button
-          className="bg-linear-to-r from-primary to-primary-hover text-white py-4 px-12 text-xl font-semibold rounded-xl
-                     shadow-lg shadow-primary/30
-                     hover:shadow-xl hover:shadow-primary/40 hover:-translate-y-1 transition-all
-                     active:translate-y-0
-                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-bg"
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 text-left">
+          <div className="bg-panel/50 p-6 rounded-xl border border-border backdrop-blur-sm">
+            <Code2 className="w-8 h-8 text-primary mb-4" />
+            <h3 className="text-lg font-semibold text-text mb-2">Editor</h3>
+            <p className="text-text-muted text-sm">
+              Monaco-based code editor with syntax highlighting and multi-cursor
+              support.
+            </p>
+          </div>
+          <div className="bg-panel/50 p-6 rounded-xl border border-border backdrop-blur-sm">
+            <Monitor className="w-8 h-8 text-blue-500 mb-4" />
+            <h3 className="text-lg font-semibold text-text mb-2">Whiteboard</h3>
+            <p className="text-text-muted text-sm">
+              Interactive whiteboard for diagramming and visual explanations.
+            </p>
+          </div>
+          <div className="bg-panel/50 p-6 rounded-xl border border-border backdrop-blur-sm">
+            <MessageSquare className="w-8 h-8 text-green-500 mb-4" />
+            <h3 className="text-lg font-semibold text-text mb-2">Chat</h3>
+            <p className="text-text-muted text-sm">
+              Real-time chat communication with other participants.
+            </p>
+          </div>
+        </div>
+
+        <Button
+          size="lg"
+          className="text-lg px-8 py-6 rounded-xl shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all hover:-translate-y-0.5"
           onClick={handleCreateSession}
         >
-          Create Session
-        </button>
+          Create New Session
+        </Button>
 
-        <p className="mt-8 text-text-muted text-sm">
-          🔒 Peer-to-peer • No data stored on server • End-to-end encrypted
+        <p className="mt-8 text-text-muted text-sm flex items-center justify-center gap-2">
+          <Users className="w-4 h-4" />
+          Peer-to-peer • End-to-end encrypted • No data stored
         </p>
       </div>
     </div>

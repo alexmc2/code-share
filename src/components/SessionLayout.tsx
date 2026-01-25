@@ -46,7 +46,8 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
             <span className="text-text-muted">{statusConfig.text}</span>
           </div>
           {isHost && (
-            <span className="bg-linear-to-br from-warning to-amber-600 text-black text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
+            <span className="text-[12px] font-semibold bg-warning px-1.5 py-0.5 rounded uppercase text-black">
+              {' '}
               Host
             </span>
           )}

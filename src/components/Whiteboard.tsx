@@ -8,6 +8,17 @@ import {
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { nanoid } from 'nanoid';
+import { Button } from './ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from './ui/dialog';
 
 // Drawing operation types
 type Tool = 'pen' | 'line' | 'rect' | 'circle' | 'eraser';
@@ -47,6 +58,117 @@ const SIZES = [
   { label: 'M', value: 5 },
   { label: 'L', value: 10 },
 ];
+
+function hitTest(point: Point, op: DrawOp): boolean {
+  const threshold = Math.max(5, op.size);
+
+  if (op.type === 'path') {
+    if (!op.points || op.points.length < 2) return false;
+    // Check distance to any point in path (simplified hit test)
+    // A better approach would be point-to-segment distance
+    for (const p of op.points) {
+      const dist = Math.hypot(p.x - point.x, p.y - point.y);
+      if (dist < threshold) return true;
+    }
+    return false;
+  }
+
+  if (op.type === 'line') {
+    if (
+      op.x1 === undefined ||
+      op.y1 === undefined ||
+      op.x2 === undefined ||
+      op.y2 === undefined
+    )
+      return false;
+
+    // Point to line segment distance
+    const A = point.x - op.x1;
+    const B = point.y - op.y1;
+    const C = op.x2 - op.x1;
+    const D = op.y2 - op.y1;
+
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    let param = -1;
+
+    if (lenSq !== 0) param = dot / lenSq;
+
+    let xx, yy;
+
+    if (param < 0) {
+      xx = op.x1;
+      yy = op.y1;
+    } else if (param > 1) {
+      xx = op.x2;
+      yy = op.y2;
+    } else {
+      xx = op.x1 + param * C;
+      yy = op.y1 + param * D;
+    }
+
+    const dx = point.x - xx;
+    const dy = point.y - yy;
+    return Math.hypot(dx, dy) < threshold;
+  }
+
+  if (op.type === 'rect') {
+    if (
+      op.x1 === undefined ||
+      op.y1 === undefined ||
+      op.x2 === undefined ||
+      op.y2 === undefined
+    )
+      return false;
+
+    // Check if point is near the borders of the rect
+    const x = Math.min(op.x1, op.x2);
+    const y = Math.min(op.y1, op.y2);
+    const w = Math.abs(op.x2 - op.x1);
+    const h = Math.abs(op.y2 - op.y1);
+
+    // Outer and inner bounds
+    const outerLeft = x - threshold;
+    const outerRight = x + w + threshold;
+    const outerTop = y - threshold;
+    const outerBottom = y + h + threshold;
+
+    const innerLeft = x + threshold;
+    const innerRight = x + w - threshold;
+    const innerTop = y + threshold;
+    const innerBottom = y + h - threshold;
+
+    const insideOuter =
+      point.x >= outerLeft &&
+      point.x <= outerRight &&
+      point.y >= outerTop &&
+      point.y <= outerBottom;
+    const insideInner =
+      point.x >= innerLeft &&
+      point.x <= innerRight &&
+      point.y >= innerTop &&
+      point.y <= innerBottom;
+
+    return insideOuter && !insideInner;
+  }
+
+  if (op.type === 'circle') {
+    if (
+      op.x1 === undefined ||
+      op.y1 === undefined ||
+      op.x2 === undefined ||
+      op.y2 === undefined
+    )
+      return false;
+
+    const radius = Math.hypot(op.x2 - op.x1, op.y2 - op.y1);
+    const dist = Math.hypot(point.x - op.x1, point.y - op.y1);
+
+    return Math.abs(dist - radius) < threshold;
+  }
+
+  return false;
+}
 
 export function Whiteboard() {
   const { doc } = useSession();
@@ -170,9 +292,21 @@ export function Whiteboard() {
     ctx.fillStyle = isDark ? '#1a1a2e' : '#f1f5f9';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Get erased IDs
+    // Get erased IDs from all ops (including historical ones)
     const erasedIds = new Set<string>();
     const ops = opsArray.toArray();
+
+    // Also consider the current operation if it is an eraser
+    if (
+      currentOp.current &&
+      currentOp.current.type === 'erase' &&
+      currentOp.current.eraseIds
+    ) {
+      for (const id of currentOp.current.eraseIds) {
+        erasedIds.add(id);
+      }
+    }
+
     for (const op of ops) {
       if (op.type === 'erase' && op.eraseIds) {
         for (const id of op.eraseIds) {
@@ -310,14 +444,27 @@ export function Whiteboard() {
 
       if (tool === 'pen' && currentOp.current.points) {
         currentOp.current.points.push(pos);
-      } else if (tool !== 'eraser') {
+      } else if (tool === 'eraser') {
+        // Find items intersecting with eraser
+        const ops = opsArray.toArray();
+        const existingErased = new Set(currentOp.current.eraseIds || []);
+
+        for (const op of ops) {
+          if (op.type !== 'erase' && !existingErased.has(op.id)) {
+            if (hitTest(pos, op)) {
+              if (!currentOp.current.eraseIds) currentOp.current.eraseIds = [];
+              currentOp.current.eraseIds.push(op.id);
+            }
+          }
+        }
+      } else {
         currentOp.current.x2 = pos.x;
         currentOp.current.y2 = pos.y;
       }
 
       scheduleRender();
     },
-    [tool, getPosition, scheduleRender],
+    [tool, getPosition, scheduleRender, opsArray],
   );
 
   // End drawing
@@ -335,8 +482,11 @@ export function Whiteboard() {
       currentOp.current.points.push({ ...currentOp.current.points[0] });
     }
 
-    // For eraser, we don't add anything (eraser needs intersection logic - simplified for MVP)
-    if (tool !== 'eraser') {
+    // For eraser, or other tools, add to opsArray
+    if (
+      tool !== 'eraser' ||
+      (currentOp.current.eraseIds && currentOp.current.eraseIds.length > 0)
+    ) {
       opsArray.push([currentOp.current]);
       undoStack.current.push(currentOp.current);
       redoStack.current = [];
@@ -348,19 +498,18 @@ export function Whiteboard() {
     scheduleRender();
   }, [tool, opsArray, scheduleRender]);
 
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+
   // Clear canvas
   const handleClear = useCallback(() => {
-    if (
-      confirm('Clear the entire whiteboard? This affects all participants.')
-    ) {
-      doc.transact(() => {
-        opsArray.delete(0, opsArray.length);
-      });
-      undoStack.current = [];
-      redoStack.current = [];
-      setCanUndo(false);
-      setCanRedo(false);
-    }
+    doc.transact(() => {
+      opsArray.delete(0, opsArray.length);
+    });
+    undoStack.current = [];
+    redoStack.current = [];
+    setCanUndo(false);
+    setCanRedo(false);
+    setIsClearDialogOpen(false);
   }, [doc, opsArray]);
 
   // Undo (local operation only - removes last op we added)
@@ -486,41 +635,54 @@ export function Whiteboard() {
         </div>
 
         {/* Actions */}
-        <div className="flex gap-1 items-center">
-          <button
-            className={`w-9 h-9 rounded-md flex items-center justify-center text-base
-                       bg-panel-2 border border-border text-text
-                       hover:bg-border/50 transition-colors
-                       disabled:opacity-30 disabled:cursor-not-allowed
-                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
+        <div className="flex gap-2 items-center">
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={handleUndo}
             disabled={!canUndo}
             title="Undo"
           >
             ↩
-          </button>
-          <button
-            className={`w-9 h-9 rounded-md flex items-center justify-center text-base
-                       bg-panel-2 border border-border text-text
-                       hover:bg-border/50 transition-colors
-                       disabled:opacity-30 disabled:cursor-not-allowed
-                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={handleRedo}
             disabled={!canRedo}
             title="Redo"
           >
             ↪
-          </button>
-          <button
-            className={`w-9 h-9 rounded-md flex items-center justify-center text-base ml-2
-                       bg-danger/15 border border-danger/30 text-text
-                       hover:bg-danger/25 hover:border-danger/50 transition-colors
-                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger`}
-            onClick={handleClear}
-            title="Clear all"
-          >
-            🗑️
-          </button>
+          </Button>
+
+          <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-danger hover:text-danger hover:bg-danger/10"
+              >
+                🗑️
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Clear Whiteboard?</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to clear the entire whiteboard? This
+                  affects all participants and cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="ghost">Cancel</Button>
+                </DialogClose>
+                <Button variant="destructive" onClick={handleClear}>
+                  Clear All
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 

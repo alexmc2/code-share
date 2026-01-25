@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import Editor, { type OnMount } from '@monaco-editor/react';
+import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import * as Y from 'yjs';
+import { Button } from './ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from './ui/dialog';
 
 const LANGUAGES = [
   { id: 'javascript', label: 'JavaScript' },
@@ -34,6 +45,46 @@ export function CodeEditor() {
   useEffect(() => {
     yTextRef.current = yText;
   }, [yText]);
+
+  // Configure Monaco for React
+  const handleBeforeMount: BeforeMount = (monaco) => {
+    const compilerOptions = {
+      target: monaco.languages.typescript.ScriptTarget.ES2015,
+      allowNonTsExtensions: true,
+      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+      module: monaco.languages.typescript.ModuleKind.CommonJS,
+      noEmit: true,
+      esModuleInterop: true,
+      jsx: monaco.languages.typescript.JsxEmit.React,
+      reactNamespace: 'React',
+      allowJs: true,
+      typeRoots: ['node_modules/@types'],
+    };
+
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions(
+      compilerOptions,
+    );
+    monaco.languages.typescript.javascriptDefaults.setCompilerOptions(
+      compilerOptions,
+    );
+
+    // Add React type definitions
+    monaco.languages.typescript.typescriptDefaults.addExtraLib(
+      `
+      declare module 'react' {
+        export = React;
+      }
+      declare namespace React {
+        interface Component<P = {}, S = {}, SS = any> {}
+        function useState<T>(initialState: T | (() => T)): [T, (newState: T | ((prevState: T) => T)) => void];
+        function useEffect(effect: () => void | (() => void), deps?: ReadonlyArray<any>): void;
+        function useRef<T>(initialValue: T): { current: T };
+        // Add more basic React types as needed for basic autocompletion
+      }
+      `,
+      'file:///node_modules/@types/react/index.d.ts',
+    );
+  };
 
   // Sync Monaco content to Yjs
   const handleEditorMount: OnMount = (editor) => {
@@ -132,17 +183,14 @@ export function CodeEditor() {
     return () => yText.unobserve(observer);
   }, [yText]);
 
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+
   // Reset code
   const handleReset = useCallback(() => {
-    if (
-      confirm(
-        'Are you sure you want to clear all code? This affects all participants.',
-      )
-    ) {
-      doc.transact(() => {
-        yText.delete(0, yText.length);
-      });
-    }
+    doc.transact(() => {
+      yText.delete(0, yText.length);
+    });
+    setIsResetDialogOpen(false);
   }, [doc, yText]);
 
   return (
@@ -166,14 +214,35 @@ export function CodeEditor() {
             </option>
           ))}
         </select>
-        <button
-          className="ml-auto bg-danger/15 border border-danger/30 text-danger px-3 py-1.5 text-xs rounded-md
-                     hover:bg-danger/25 hover:border-danger/50 transition-colors
-                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
-          onClick={handleReset}
-        >
-          Reset Code
-        </button>
+
+        <Dialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
+          <DialogTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto text-danger border-border hover:bg-danger/10 hover:text-danger hover:border-danger"
+            >
+              Reset
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reset Code?</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to clear all code? This affects all
+                participants and cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="ghost">Cancel</Button>
+              </DialogClose>
+              <Button variant="destructive" onClick={handleReset}>
+                Reset Code
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Editor container */}
@@ -183,6 +252,7 @@ export function CodeEditor() {
           language={language}
           theme={isDark ? 'vs-dark' : 'light'}
           onMount={handleEditorMount}
+          beforeMount={handleBeforeMount}
           options={{
             minimap: { enabled: false },
             fontSize: 14,

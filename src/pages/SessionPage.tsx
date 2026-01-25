@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSession } from '../lib/useSession';
 import { SessionLayout } from '../components/SessionLayout';
@@ -8,7 +8,13 @@ export function SessionPage() {
   const navigate = useNavigate();
   const { joinSession, status, localName, setLocalName } = useSession();
 
-  const [showNamePrompt, setShowNamePrompt] = useState(true);
+  const [showNamePrompt, setShowNamePrompt] = useState(() => {
+    // Check if we should auto-join
+    if (sessionId && localStorage.getItem('active-session-id') === sessionId) {
+      return false;
+    }
+    return true;
+  });
   const [nameInput, setNameInput] = useState(localName);
 
   // Redirect if no session ID
@@ -18,12 +24,28 @@ export function SessionPage() {
     }
   }, [sessionId, navigate]);
 
+  // Check for stored session to skip prompt
+  const hasAutoJoined = useRef(false);
+
+  useEffect(() => {
+    if (!sessionId || !joinSession || hasAutoJoined.current) return;
+
+    // Check if we were already in this session
+    const storedSession = localStorage.getItem('active-session-id');
+    if (storedSession === sessionId) {
+      hasAutoJoined.current = true;
+      // Already set showNamePrompt to false in initial state
+      joinSession(sessionId, localName);
+    }
+  }, [sessionId, joinSession, localName]);
+
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     const name = nameInput.trim() || 'Guest';
     setLocalName(name);
     setShowNamePrompt(false);
     if (sessionId) {
+      localStorage.setItem('active-session-id', sessionId);
       joinSession(sessionId, name);
     }
   };

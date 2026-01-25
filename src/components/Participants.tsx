@@ -33,7 +33,7 @@ export function Participants() {
                 )}
               </span>
               {p.isHost && (
-                <span className="text-[10px] font-semibold text-warning bg-warning/15 px-1.5 py-0.5 rounded uppercase">
+                <span className="text-[12px] font-semibold bg-warning px-1.5 py-0.5 rounded uppercase text-black">
                   Host
                 </span>
               )}
