@@ -110,6 +110,16 @@ export function CodeEditor() {
       typeRoots: ['node_modules/@types'],
     };
 
+    // Define custom dark theme
+    monaco.editor.defineTheme('code-share-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': '#111827',
+      },
+    });
+
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions(
       compilerOptions,
     );
@@ -129,6 +139,11 @@ export function CodeEditor() {
         function useEffect(effect: () => void | (() => void), deps?: ReadonlyArray<any>): void;
         function useRef<T>(initialValue: T): { current: T };
         // Add more basic React types as needed for basic autocompletion
+        // Add minimal types for common hooks
+        function useCallback<T extends (...args: any[]) => any>(callback: T, deps: ReadonlyArray<any>): T;
+        function useMemo<T>(factory: () => T, deps: ReadonlyArray<any> | undefined): T;
+        function useContext<T>(context: React.Context<T>): T;
+        function useReducer<R, I>(reducer: (prevState: R, action: any) => R, initializerArg: I, initializer?: (arg: I) => R): [R, React.Dispatch<any>];
       }
       `,
       'file:///node_modules/@types/react/index.d.ts',
@@ -342,7 +357,7 @@ export function CodeEditor() {
           height="100%"
           language={language}
           defaultPath="file:///code.txt"
-          theme={isDark ? 'vs-dark' : 'light'}
+          theme={isDark ? 'code-share-dark' : 'light'}
           onMount={handleEditorMount}
           beforeMount={handleBeforeMount}
           options={{

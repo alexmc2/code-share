@@ -289,7 +289,7 @@ export function Whiteboard() {
     if (!canvas) return;
 
     // Clear canvas with theme-appropriate background
-    ctx.fillStyle = isDark ? '#1a1a2e' : '#f1f5f9';
+    ctx.fillStyle = isDark ? '#111827' : '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Get erased IDs from all ops (including historical ones)

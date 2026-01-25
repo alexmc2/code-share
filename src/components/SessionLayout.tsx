@@ -6,6 +6,7 @@ import { CodeEditor } from './CodeEditor';
 import { Whiteboard } from './Whiteboard';
 import { Participants } from './Participants';
 import { Chat } from './Chat';
+// SVG removed, using string path below
 
 type Tab = 'code' | 'diagram';
 
@@ -18,7 +19,6 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
   const { participants, isHost } = useSession();
   const { theme, toggle: toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('code');
-  // Default to collapsed on small screens? No, user wants it collapsible.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const statusConfig = {
@@ -35,8 +35,10 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
       {/* Top Bar */}
       <header className="flex items-center justify-between px-4 py-2 bg-panel border-b border-border gap-4 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold text-text flex items-center gap-1">
-            <span className="text-primary font-mono">{'</>'}</span>
+          <h1 className="text-lg font-semibold text-text flex items-center gap-1">
+            <span className="text-primary font-mono">
+              <img src="/vite.svg" className="w-5 h-5" alt="Vite logo" />
+            </span>
             CodeShare
           </h1>
           <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded bg-panel-2">
@@ -118,7 +120,6 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Workspace - added min-w-0 to prevent flex item from overflowing */}
         <div className="flex-1 overflow-hidden flex min-w-0">
           {activeTab === 'code' ? <CodeEditor /> : <Whiteboard />}
         </div>

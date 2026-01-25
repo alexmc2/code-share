@@ -1,6 +1,6 @@
 # CodeShare
 
-A lightweight, browser-based collaborative code editor and whiteboard for pair programming. No accounts, no server-side storage—everything flows peer-to-peer over WebRTC.
+A lightweight, browser-based collaborative code editor and whiteboard for pair programming. Peer-to-peer over WebRTC.
 
 ## Features
 

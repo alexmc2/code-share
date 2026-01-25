@@ -117,7 +117,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             }
             return [...prev, { ...peer, isConnected: false }];
           });
-          // The new peer will initiate connection to us
+          // The new peer will initiate connection
         },
         onPeerLeft: ({ peerId }) => {
           setParticipants((prev) => prev.filter((p) => p.peerId !== peerId));

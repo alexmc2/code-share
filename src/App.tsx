@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { SessionProvider } from './lib/session';
-import { ThemeProvider } from './lib/useTheme.tsx';
+import { ThemeProvider } from './components/ThemeProvider.tsx';
 import { LandingPage } from './pages/LandingPage';
 import { SessionPage } from './pages/SessionPage';
 import './index.css';
