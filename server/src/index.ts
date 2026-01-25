@@ -2,10 +2,6 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Types
 interface Peer {
@@ -58,15 +54,6 @@ app.use(
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', rooms: rooms.size });
 });
-
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  const staticPath = path.join(__dirname, '../../client/dist');
-  app.use(express.static(staticPath));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(staticPath, 'index.html'));
-  });
-}
 
 // Socket.IO server
 const io = new Server(httpServer, {
