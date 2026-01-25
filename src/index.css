@@ -1,0 +1,137 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Light theme colors */
+  --color-bg: #f8fafc;
+  --color-panel: #ffffff;
+  --color-panel-2: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-primary: #0ea5e9;
+  --color-primary-hover: #0284c7;
+  --color-danger: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+
+  /* Font stacks */
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: Monaco, Menlo, 'Ubuntu Mono', Consolas, monospace;
+}
+
+/* Dark mode overrides */
+.dark {
+  --color-bg: #0f0f1a;
+  --color-panel: #1a1a2e;
+  --color-panel-2: #16213e;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-text: #ffffff;
+  --color-text-muted: #94a3b8;
+  --color-primary-hover: #38bdf8;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full w-full;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code,
+  pre,
+  .mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Focus styles */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* Button reset */
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  /* Input reset */
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  /* Selection */
+  ::selection {
+    background: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+}
+
+@layer components {
+  /* Primary button */
+  .btn-primary {
+    @apply bg-primary text-white px-4 py-2 rounded-lg font-medium;
+    @apply transition-colors;
+  }
+  .btn-primary:hover {
+    @apply bg-primary-hover;
+  }
+  .btn-primary:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  /* Input field */
+  .input {
+    @apply bg-panel-2 border border-border rounded-lg px-3 py-2 text-text;
+    @apply transition-colors;
+  }
+  .input::placeholder {
+    color: var(--color-text-muted);
+  }
+  .input:focus {
+    @apply outline-none border-primary;
+    box-shadow: 0 0 0 1px var(--color-primary);
+  }
+
+  /* Panel/card */
+  .panel {
+    @apply bg-panel border border-border rounded-xl;
+  }
+}
