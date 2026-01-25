@@ -6,7 +6,7 @@ import { useTheme } from '../lib/useTheme';
 import { formatWithPrettier } from '../lib/format';
 import * as Y from 'yjs';
 import { Button } from './ui/button';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, Copy, Check } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -285,6 +285,15 @@ export function CodeEditor() {
   }, [language]);
 
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Copy code to clipboard
+  const handleCopy = useCallback(async () => {
+    const code = yText.toString();
+    await navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [yText]);
 
   // Reset code
   const handleReset = useCallback(() => {
@@ -327,36 +336,52 @@ export function CodeEditor() {
           </select>
         </div>
 
-        <Dialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
-          <DialogTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-danger border-border hover:bg-danger/10 hover:text-danger hover:border-danger gap-2 px-2 sm:px-3 shrink-0"
-              title="Reset Code"
-            >
-              <RotateCcw className="h-4 w-4" />
-              <span>Reset</span>
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Reset Code?</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to clear all code? This affects all
-                participants and cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button variant="ghost">Cancel</Button>
-              </DialogClose>
-              <Button variant="destructive" onClick={handleReset}>
-                Reset Code
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            onClick={handleCopy}
+            title="Copy Code"
+          >
+            {copied ? (
+              <Check className="h-4 w-4 text-success" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </Button>
+
+          <Dialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-danger border-border hover:bg-danger/10 hover:text-danger hover:border-danger gap-2 px-2 sm:px-3"
+                title="Reset Code"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>Reset</span>
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Reset Code?</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to clear all code? This affects all
+                  participants and cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="ghost">Cancel</Button>
+                </DialogClose>
+                <Button variant="destructive" onClick={handleReset}>
+                  Reset Code
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Editor container */}
