@@ -6,6 +6,7 @@ import { useTheme } from '../lib/useTheme';
 import { formatWithPrettier } from '../lib/format';
 import * as Y from 'yjs';
 import { Button } from './ui/button';
+import { RotateCcw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -296,39 +297,46 @@ export function CodeEditor() {
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-4 py-2 bg-panel border-b border-border">
-        <label htmlFor="language-select" className="text-xs text-text-muted">
-          Language:
-        </label>
-        <select
-          id="language-select"
-          className="bg-panel-2 border border-border text-text px-3 py-1.5 rounded-md text-sm
-                     cursor-pointer focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
-                     transition-colors"
-          value={language}
-          onChange={(e) => {
-            const next = e.target.value;
-            setLanguage(next);
-            if (settings.get('language') !== next) {
-              settings.set('language', next);
-            }
-          }}
-        >
-          {LANGUAGES.map((lang) => (
-            <option key={lang.id} value={lang.id}>
-              {lang.label}
-            </option>
-          ))}
-        </select>
+      <div className="flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2 bg-panel border-b border-border min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <label
+            htmlFor="language-select"
+            className="text-xs text-text-muted hidden sm:inline text-nowrap shrink-0"
+          >
+            Language:
+          </label>
+          <select
+            id="language-select"
+            className="bg-panel-2 border border-border text-text px-2 sm:px-3 py-1.5 rounded-md text-sm
+                       cursor-pointer focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
+                       transition-colors w-full sm:w-auto max-w-32.5 sm:max-w-none truncate"
+            value={language}
+            onChange={(e) => {
+              const next = e.target.value;
+              setLanguage(next);
+              if (settings.get('language') !== next) {
+                settings.set('language', next);
+              }
+            }}
+          >
+            {LANGUAGES.map((lang) => (
+              <option key={lang.id} value={lang.id}>
+                {lang.label}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <Dialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
           <DialogTrigger asChild>
             <Button
               variant="outline"
               size="sm"
-              className="ml-auto text-danger border-border hover:bg-danger/10 hover:text-danger hover:border-danger"
+              className="text-danger border-border hover:bg-danger/10 hover:text-danger hover:border-danger gap-2 px-2 sm:px-3 shrink-0"
+              title="Reset Code"
             >
-              Reset
+              <RotateCcw className="h-4 w-4" />
+              <span>Reset</span>
             </Button>
           </DialogTrigger>
           <DialogContent>

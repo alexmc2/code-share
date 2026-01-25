@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { type ConnectionStatus } from '../lib/session';
@@ -6,6 +6,16 @@ import { CodeEditor } from './CodeEditor';
 import { Whiteboard } from './Whiteboard';
 import { Participants } from './Participants';
 import { Chat } from './Chat';
+import {
+  Moon,
+  Sun,
+  Copy,
+  MessageSquare,
+  ChevronLeft,
+  ChevronRight,
+  X,
+} from 'lucide-react';
+import { Button } from './ui/button';
 
 type Tab = 'code' | 'diagram';
 
@@ -188,57 +198,60 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-            <span className="text-xs sm:text-sm text-text-muted hidden sm:inline">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <span className="text-xs sm:text-sm text-text-muted hidden sm:inline mr-2">
               👥 {participants.length}
             </span>
-            <button
-              className="bg-panel-2 border border-border text-text px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs rounded-lg
-                         hover:bg-border/50 transition-colors
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hidden sm:flex items-center gap-1"
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 sm:w-auto sm:px-3 sm:gap-2"
               onClick={onCopyLink}
               title="Copy session link"
             >
-              🔗 <span className="hidden lg:inline">Copy Link</span>
-            </button>
-            <button
-              className="bg-panel-2 border border-border text-text w-7 h-7 rounded-lg flex items-center justify-center sm:hidden
-                         hover:bg-border/50 transition-colors
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              onClick={onCopyLink}
-              title="Copy session link"
-            >
-              🔗
-            </button>
-            <button
-              className="bg-panel-2 border border-border text-text w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center
-                         hover:bg-border/50 transition-colors
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              <Copy className="h-4 w-4" />
+              <span className="hidden lg:inline">Copy Link</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
               onClick={toggleTheme}
               title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
             >
-              {theme === 'dark' ? '☀️' : '🌙'}
-            </button>
+              {theme === 'dark' ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
+            </Button>
+
             {/* Mobile messages toggle */}
-            <button
-              className="bg-panel-2 border border-border text-text w-7 h-7 rounded-lg flex items-center justify-center
-                         hover:bg-border/50 transition-colors
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:hidden"
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 md:hidden"
               onClick={() => setMobileDrawerOpen(true)}
               title="Open messages"
             >
-              💬
-            </button>
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+
             {/* Desktop sidebar toggle */}
-            <button
-              className="bg-panel-2 border border-border text-text w-8 h-8 rounded-lg items-center justify-center
-                         hover:bg-border/50 transition-colors
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hidden md:flex lg:hidden"
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hidden md:flex lg:hidden"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
             >
-              {sidebarCollapsed ? '◀' : '▶'}
-            </button>
+              {sidebarCollapsed ? (
+                <ChevronLeft className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </Button>
           </div>
         </div>
 
@@ -279,7 +292,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
         <div
           ref={mainPanelRef}
           className="flex-1 overflow-hidden flex min-w-0"
-          style={{ minWidth: MIN_MAIN_WIDTH }}
+          style={{ minWidth: isMobile ? 0 : MIN_MAIN_WIDTH }}
         >
           {activeTab === 'code' ? <CodeEditor /> : <Whiteboard />}
         </div>
@@ -303,13 +316,12 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
           {sidebarCollapsed ? (
             <div className="flex flex-col items-center py-4">
               <button
-                className="w-8 h-8 rounded-lg bg-panel-2 border border-border flex items-center justify-center
-                           text-text-muted hover:text-text hover:bg-border/50 transition-colors
-                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="w-8 h-8 rounded-lg text-text-muted hover:text-text hover:bg-border/50 transition-colors
+                           flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 onClick={() => setSidebarCollapsed(false)}
                 title="Expand sidebar"
               >
-                ◀
+                <ChevronLeft className="h-4 w-4" />
               </button>
               <span className="text-xs text-text-muted mt-4 [writing-mode:vertical-lr] rotate-180">
                 Messages
@@ -326,7 +338,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   onClick={() => setSidebarCollapsed(true)}
                   title="Collapse sidebar"
                 >
-                  ▶
+                  <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
               <Participants />
@@ -355,7 +367,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                 onClick={() => setMobileDrawerOpen(false)}
                 title="Close messages"
               >
-                ✕
+                <X className="h-4 w-4" />
               </button>
             </div>
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
