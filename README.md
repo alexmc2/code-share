@@ -2,6 +2,8 @@
 
 A lightweight, browser-based collaborative code editor and whiteboard for pair programming. Peer-to-peer over WebRTC.
 
+![image](public/image.png)
+
 ## Features
 
 - **Collaborative Code Editor**: Monaco Editor with syntax highlighting for 10+ languages
@@ -177,8 +179,8 @@ Copy `.env.example` to `.env` and configure:
 │                      Browser Clients                        │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐    WebRTC Data Channel    ┌─────────────┐  │
-│  │   Client A  │◄──────────────────────────►│   Client B  │  │
-│  │             │                            │             │  │
+│  │   Client A  │◄──────────────────────────│   Client B  │  │
+│  │             │                           │             │  │
 │  │  - Monaco   │   Yjs CRDT Sync:          │  - Monaco   │  │
 │  │  - Canvas   │   • Code (Y.Text)         │  - Canvas   │  │
 │  │  - Chat     │   • Whiteboard (Y.Array)  │  - Chat     │  │
@@ -186,9 +188,9 @@ Copy `.env.example` to `.env` and configure:
 │         │                                         │         │
 │         │     Socket.IO (signalling only)         │         │
 │         └────────────────┬────────────────────────┘         │
-│                          │                                   │
+│                          │                                  │
 ├──────────────────────────┼──────────────────────────────────┤
-│                          ▼                                   │
+│                          ▼                                  │
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │                Signalling Server                        ││
 │  │  • Room membership (in-memory)                          ││
