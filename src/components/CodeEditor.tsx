@@ -3,6 +3,7 @@ import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
+import { formatWithPrettier } from '../lib/format';
 import * as Y from 'yjs';
 import { Button } from './ui/button';
 import {
@@ -28,6 +29,49 @@ const LANGUAGES = [
   { id: 'css', label: 'CSS' },
   { id: 'json', label: 'JSON' },
 ];
+
+function addFormatOnSave(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  monaco: typeof Monaco,
+) {
+  const runFormat = async () => {
+    const model = editor.getModel();
+    if (!model) return;
+
+    const lang = model.getLanguageId();
+    const original = model.getValue();
+
+    const res = await formatWithPrettier(original, lang);
+    if (!res.ok) {
+      await editor.getAction('editor.action.formatDocument')?.run();
+      return;
+    }
+
+    if (res.code === original) return;
+
+    const selections = editor.getSelections() ?? [];
+    model.pushEditOperations(
+      selections,
+      [{ range: model.getFullModelRange(), text: res.code }],
+      () => selections,
+    );
+  };
+
+  editor.addAction({
+    id: 'format-with-prettier',
+    label: 'Format (Prettier)',
+    run: runFormat,
+  });
+
+  editor.onKeyDown((e) => {
+    const isSave =
+      (e.ctrlKey || e.metaKey) && e.keyCode === monaco.KeyCode.KeyS;
+    if (!isSave) return;
+
+    e.preventDefault();
+    void runFormat();
+  });
+}
 
 export function CodeEditor() {
   const { doc } = useSession();
@@ -87,8 +131,11 @@ export function CodeEditor() {
   };
 
   // Sync Monaco content to Yjs
-  const handleEditorMount: OnMount = (editor) => {
+  const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    if (monaco) {
+      addFormatOnSave(editor, monaco);
+    }
 
     // Initialize editor with current Yjs content
     const content = yText.toString();
