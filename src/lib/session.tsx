@@ -134,15 +134,23 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // Connect and join room
       signalling.onConnect(() => {
         signalling.joinRoom(sid, name, localPeerId);
+        provider.connect(sid);
       });
 
       signalling.onDisconnect(() => {
         setStatus('disconnected');
+        provider.disconnect();
       });
 
       signalling.connect();
     },
-    [sessionId, localPeerId, setLocalName, updateParticipantConnection],
+    [
+      sessionId,
+      localPeerId,
+      setLocalName,
+      updateParticipantConnection,
+      provider,
+    ],
   );
 
   // Leave session
@@ -150,11 +158,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     signalling.leaveRoom();
     signalling.disconnect();
     webrtc.closeAll();
+    provider.disconnect();
     setSessionId(null);
     setParticipants([]);
     setStatus('disconnected');
     setIsHost(false);
-  }, []);
+  }, [provider]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -217,6 +217,9 @@ export class WebRTCManager {
         event.data instanceof ArrayBuffer
           ? new Uint8Array(event.data)
           : event.data;
+      console.log(
+        `[webrtc] Received ${data.byteLength || data.length} bytes from ${peerConn.peerId}`,
+      );
       this.onMessageHandler?.(peerConn.peerId, data);
     };
 

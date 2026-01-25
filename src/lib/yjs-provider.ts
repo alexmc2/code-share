@@ -17,18 +17,21 @@ const MESSAGE_AWARENESS = 1;
 export class YjsProvider {
   doc: Y.Doc;
   awareness: Awareness;
-  persistence: IndexeddbPersistence;
+  persistence: IndexeddbPersistence | null = null;
   private syncedPeers: Set<string> = new Set();
 
   constructor(doc: Y.Doc) {
     this.doc = doc;
     this.awareness = new Awareness(doc);
-    this.persistence = new IndexeddbPersistence('code-share-data', doc);
 
     // Listen for local document updates
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       // Don't rebroadcast updates we received from peers
       if (origin === 'remote') return;
+      console.log(
+        '[YjsProvider] Local update originating from doc',
+        update.length,
+      );
       this.broadcastUpdate(update);
     });
 
@@ -46,6 +49,11 @@ export class YjsProvider {
       }) => {
         const changedClients = [...added, ...updated, ...removed];
         if (changedClients.length > 0) {
+          console.log('[YjsProvider] Local awareness update', {
+            added,
+            updated,
+            removed,
+          });
           this.broadcastAwareness(changedClients);
         }
       },
@@ -63,6 +71,7 @@ export class YjsProvider {
       this.initiateSync(peerId);
     } else {
       // Peer disconnected
+      console.log(`[yjs] Peer ${peerId} disconnected`);
       this.syncedPeers.delete(peerId);
     }
   }
@@ -73,6 +82,7 @@ export class YjsProvider {
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeSyncStep1(encoder, this.doc);
     const message = encoding.toUint8Array(encoder);
+    console.log(`[yjs] Sending sync step 1 to ${peerId}`);
     webrtc.send(peerId, message);
 
     // Also send awareness state
@@ -85,11 +95,13 @@ export class YjsProvider {
         Array.from(this.awareness.getStates().keys()),
       ),
     );
+    console.log(`[yjs] Sending initial awareness state to ${peerId}`);
     webrtc.send(peerId, encoding.toUint8Array(awarenessEncoder));
   }
 
   private handleMessage(peerId: string, data: Uint8Array | string) {
     if (typeof data === 'string') return; // We only handle binary
+    console.log(`[yjs] Received message from ${peerId}, type: ${data[0]}`);
 
     const decoder = decoding.createDecoder(data);
     const messageType = decoding.readVarUint(decoder);
@@ -162,8 +174,23 @@ export class YjsProvider {
     this.awareness.setLocalState(state);
   }
 
+  connect(sessionId: string) {
+    if (this.persistence) return;
+    this.persistence = new IndexeddbPersistence(
+      `code-share-data-${sessionId}`,
+      this.doc,
+    );
+  }
+
+  disconnect() {
+    if (this.persistence) {
+      this.persistence.destroy();
+      this.persistence = null;
+    }
+  }
+
   destroy() {
     this.awareness.destroy();
-    this.persistence.destroy();
+    this.disconnect();
   }
 }

@@ -30,23 +30,6 @@ const LANGUAGES = [
   { id: 'json', label: 'JSON' },
 ];
 
-const LANGUAGE_PATHS: Record<string, string> = {
-  javascript: 'file:///main.jsx',
-  typescript: 'file:///main.tsx',
-  python: 'file:///main.py',
-  java: 'file:///main.java',
-  csharp: 'file:///main.cs',
-  go: 'file:///main.go',
-  sql: 'file:///main.sql',
-  html: 'file:///main.html',
-  css: 'file:///main.css',
-  json: 'file:///main.json',
-};
-
-function languageToPath(lang: string) {
-  return LANGUAGE_PATHS[lang] ?? 'file:///main.txt';
-}
-
 function addFormatOnSave(
   editor: Monaco.editor.IStandaloneCodeEditor,
   monaco: typeof Monaco,
@@ -206,6 +189,8 @@ export function CodeEditor() {
         isRemoteChange.current = false;
         return;
       }
+      
+      console.log('[CodeEditor] Remote change detected', event.delta);
 
       // Apply each delta
       let index = 0;
@@ -280,7 +265,8 @@ export function CodeEditor() {
       editor.setValue(content);
       isRemoteChange.current = false;
     }
-  }, [language, yText]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
 
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
 
@@ -355,7 +341,7 @@ export function CodeEditor() {
         <Editor
           height="100%"
           language={language}
-          path={languageToPath(language)}
+          defaultPath="file:///code.txt"
           theme={isDark ? 'vs-dark' : 'light'}
           onMount={handleEditorMount}
           beforeMount={handleBeforeMount}
