@@ -244,6 +244,31 @@ VITE_TURN_CREDENTIAL=password
 - **Eraser simplified**: Eraser tool is basic (no object selection in MVP)
 - **No remote cursors**: Monaco cursor sharing not implemented in MVP
 
+## Deployment Requirements
+
+> [!IMPORTANT]
+> **Signalling Server Must Be Stateful**
+>
+> The signalling server maintains room membership and host election state in memory. This means:
+>
+> - **Single instance**: Deploy as a single persistent process, not a serverless function
+> - **Sticky sessions**: If load-balanced, configure sticky sessions (session affinity) so all WebSocket connections from the same client hit the same instance
+> - **WSS required**: Use WebSocket Secure (`wss://`) when the client is served over HTTPS
+> - **No serverless**: Do NOT deploy to Vercel Edge Functions, Cloudflare Workers, or similar platforms that don't support persistent WebSocket connections
+>
+> If you need horizontal scaling, add a shared state adapter (e.g., `@socket.io/redis-adapter`) to synchronise room state across instances.
+
+## Debugging
+
+Enable debug mode by adding `?debug=1` to the URL or setting `VITE_DEBUG=true` environment variable. This logs:
+
+- Session/peer/socket IDs
+- Room state updates from server
+- WebRTC connection lifecycle (offer/answer, ICE candidates, channel state)
+- Yjs sync events (SyncStep1/2, updates, awareness)
+
+Debug state is also exposed to `window.__CODE_SHARE_DEBUG__` for DevTools inspection.
+
 ## Tech Stack
 
 - **Client**: Vite + React 19 + TypeScript
@@ -251,4 +276,3 @@ VITE_TURN_CREDENTIAL=password
 - **Realtime**: Yjs CRDT + custom WebRTC provider
 - **Signalling**: Socket.IO
 - **Server**: Express + Node.js
-

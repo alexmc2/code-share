@@ -10,6 +10,7 @@ import {
   type ConnectionStatus,
   type SessionContextValue,
 } from './SessionContext';
+import { debugLog, setDebugState } from './debug';
 
 // Re-export types and context for convenience
 export { SessionContext };
@@ -81,6 +82,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      debugLog(
+        'session',
+        'Joining session:',
+        sid,
+        'as:',
+        name,
+        'peerId:',
+        localPeerId,
+      );
+      setDebugState({ sessionId: sid, localPeerId, isHost: false });
+
       setSessionId(sid);
       setLocalName(name);
       setStatus('connecting');
@@ -93,10 +105,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       // Set up signalling event handlers
       signalling.setEventHandlers({
-        onRoomState: ({ participants: peers, isHost: host }) => {
-          setIsHost(host);
+        onRoomState: (roomState) => {
+          const amIHost = roomState.hostId === localPeerId;
+          debugLog(
+            'session',
+            'Room state received, amIHost:',
+            amIHost,
+            'hostId:',
+            roomState.hostId,
+          );
+          setDebugState({ isHost: amIHost });
+
+          setIsHost(amIHost);
           setParticipants(
-            peers.map((p) => ({
+            roomState.participants.map((p) => ({
               ...p,
               isConnected: p.peerId === localPeerId,
             })),
@@ -104,13 +126,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           setStatus('connected');
 
           // Initiate WebRTC connections to existing peers
-          for (const peer of peers) {
+          for (const peer of roomState.participants) {
             if (peer.peerId !== localPeerId) {
               webrtc.createConnection(peer.peerId);
             }
           }
         },
         onPeerJoined: ({ peer }) => {
+          debugLog('session', 'Peer joined:', peer.peerId, peer.name);
           setParticipants((prev) => {
             if (prev.some((p) => p.peerId === peer.peerId)) {
               return prev;

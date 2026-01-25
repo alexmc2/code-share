@@ -1,5 +1,6 @@
 import { config } from './config';
 import { signalling } from './signalling';
+import { debugLog, debugLogData } from './debug';
 
 export type DataChannelMessageHandler = (
   peerId: string,
@@ -11,6 +12,8 @@ interface PeerConnection {
   connection: RTCPeerConnection;
   dataChannel: RTCDataChannel | null;
   isConnected: boolean;
+  messageQueue: Uint8Array[]; // Queue for messages before channel open
+  iceCandidateCount: number; // Track ICE candidates for debugging
 }
 
 export class WebRTCManager {
@@ -47,11 +50,11 @@ export class WebRTCManager {
   // Create a new peer connection and initiate the offer
   async createConnection(remotePeerId: string): Promise<void> {
     if (this.peers.has(remotePeerId)) {
-      console.log(`[webrtc] Connection to ${remotePeerId} already exists`);
+      debugLog('webrtc', 'Connection already exists:', remotePeerId);
       return;
     }
 
-    console.log(`[webrtc] Creating connection to ${remotePeerId}`);
+    debugLog('webrtc', 'Creating connection to:', remotePeerId);
 
     const connection = new RTCPeerConnection({
       iceServers: config.iceServers,
@@ -62,6 +65,8 @@ export class WebRTCManager {
       connection,
       dataChannel: null,
       isConnected: false,
+      messageQueue: [],
+      iceCandidateCount: 0,
     };
 
     this.peers.set(remotePeerId, peerConn);
@@ -86,7 +91,7 @@ export class WebRTCManager {
     offer: RTCSessionDescriptionInit;
   }) {
     const { fromPeerId, offer } = data;
-    console.log(`[webrtc] Received offer from ${fromPeerId}`);
+    debugLog('webrtc', 'Received offer from:', fromPeerId);
 
     // Clean up existing connection if any
     this.closeConnection(fromPeerId);
@@ -100,6 +105,8 @@ export class WebRTCManager {
       connection,
       dataChannel: null,
       isConnected: false,
+      messageQueue: [],
+      iceCandidateCount: 0,
     };
 
     this.peers.set(fromPeerId, peerConn);
@@ -107,7 +114,7 @@ export class WebRTCManager {
 
     // Wait for data channel from offerer
     connection.ondatachannel = (event) => {
-      console.log(`[webrtc] Data channel received from ${fromPeerId}`);
+      debugLog('webrtc', 'Data channel received from:', fromPeerId);
       peerConn.dataChannel = event.channel;
       this.setupDataChannelHandlers(peerConn, event.channel);
     };
@@ -124,11 +131,11 @@ export class WebRTCManager {
     answer: RTCSessionDescriptionInit;
   }) {
     const { fromPeerId, answer } = data;
-    console.log(`[webrtc] Received answer from ${fromPeerId}`);
+    debugLog('webrtc', 'Received answer from:', fromPeerId);
 
     const peerConn = this.peers.get(fromPeerId);
     if (!peerConn) {
-      console.warn(`[webrtc] No connection found for ${fromPeerId}`);
+      debugLog('webrtc', 'No connection found for:', fromPeerId);
       return;
     }
 
@@ -144,16 +151,15 @@ export class WebRTCManager {
 
     const peerConn = this.peers.get(fromPeerId);
     if (!peerConn) {
-      console.warn(
-        `[webrtc] No connection found for ICE candidate from ${fromPeerId}`,
-      );
+      debugLog('webrtc', 'No connection for ICE candidate from:', fromPeerId);
       return;
     }
+    peerConn.iceCandidateCount++;
 
     try {
       await peerConn.connection.addIceCandidate(candidate);
     } catch (err) {
-      console.error(`[webrtc] Failed to add ICE candidate:`, err);
+      debugLog('webrtc', 'Failed to add ICE candidate:', err);
     }
   }
 
@@ -167,8 +173,10 @@ export class WebRTCManager {
     };
 
     connection.onconnectionstatechange = () => {
-      console.log(
-        `[webrtc] Connection state with ${peerId}: ${connection.connectionState}`,
+      debugLog(
+        'webrtc',
+        `Connection state ${peerId}:`,
+        connection.connectionState,
       );
 
       const isConnected = connection.connectionState === 'connected';
@@ -181,14 +189,16 @@ export class WebRTCManager {
         connection.connectionState === 'failed' ||
         connection.connectionState === 'disconnected'
       ) {
-        // Attempt reconnection logic could go here
-        console.log(`[webrtc] Connection to ${peerId} failed/disconnected`);
+        debugLog('webrtc', `Connection to ${peerId} failed/disconnected`);
       }
     };
 
     connection.oniceconnectionstatechange = () => {
-      console.log(
-        `[webrtc] ICE state with ${peerId}: ${connection.iceConnectionState}`,
+      debugLog(
+        'webrtc',
+        `ICE state ${peerId}:`,
+        connection.iceConnectionState,
+        `(${peerConn.iceCandidateCount} candidates)`,
       );
     };
   }
@@ -200,13 +210,31 @@ export class WebRTCManager {
     dataChannel.binaryType = 'arraybuffer';
 
     dataChannel.onopen = () => {
-      console.log(`[webrtc] Data channel open with ${peerConn.peerId}`);
+      debugLog('webrtc', 'Data channel OPEN with:', peerConn.peerId);
       peerConn.isConnected = true;
+
+      // Flush any queued messages
+      if (peerConn.messageQueue.length > 0) {
+        debugLog(
+          'webrtc',
+          `Flushing ${peerConn.messageQueue.length} queued messages to:`,
+          peerConn.peerId,
+        );
+        for (const msg of peerConn.messageQueue) {
+          try {
+            dataChannel.send(msg.buffer as ArrayBuffer);
+          } catch (err) {
+            debugLog('webrtc', 'Failed to flush queued message:', err);
+          }
+        }
+        peerConn.messageQueue = [];
+      }
+
       this.onConnectionChangeHandler?.(peerConn.peerId, true);
     };
 
     dataChannel.onclose = () => {
-      console.log(`[webrtc] Data channel closed with ${peerConn.peerId}`);
+      debugLog('webrtc', 'Data channel CLOSED with:', peerConn.peerId);
       peerConn.isConnected = false;
       this.onConnectionChangeHandler?.(peerConn.peerId, false);
     };
@@ -217,53 +245,68 @@ export class WebRTCManager {
         event.data instanceof ArrayBuffer
           ? new Uint8Array(event.data)
           : event.data;
-      console.log(
-        `[webrtc] Received ${data.byteLength || data.length} bytes from ${peerConn.peerId}`,
+      debugLogData(
+        'webrtc',
+        'received',
+        peerConn.peerId,
+        data.byteLength || data.length,
       );
       this.onMessageHandler?.(peerConn.peerId, data);
     };
 
     dataChannel.onerror = (error) => {
-      console.error(
-        `[webrtc] Data channel error with ${peerConn.peerId}:`,
-        error,
-      );
+      debugLog('webrtc', `Data channel error with ${peerConn.peerId}:`, error);
     };
   }
 
-  // Send data to a specific peer
+  // Send data to a specific peer (queues if channel not open)
   send(peerId: string, data: Uint8Array | string): boolean {
     const peerConn = this.peers.get(peerId);
-    if (!peerConn?.dataChannel || peerConn.dataChannel.readyState !== 'open') {
+    if (!peerConn) {
+      debugLog('webrtc', 'Cannot send, no connection to:', peerId);
       return false;
     }
 
+    // Convert string to Uint8Array for consistent handling
+    const binaryData =
+      typeof data === 'string' ? new TextEncoder().encode(data) : data;
+
+    // Queue if channel not ready
+    if (!peerConn.dataChannel || peerConn.dataChannel.readyState !== 'open') {
+      debugLog(
+        'webrtc',
+        `Queuing message for ${peerId}, channel state:`,
+        peerConn.dataChannel?.readyState || 'no channel',
+      );
+      peerConn.messageQueue.push(binaryData);
+      return true; // Queued successfully
+    }
+
     try {
-      if (typeof data === 'string') {
-        peerConn.dataChannel.send(data);
-      } else {
-        peerConn.dataChannel.send(data.buffer as ArrayBuffer);
-      }
+      peerConn.dataChannel.send(binaryData.buffer as ArrayBuffer);
+      debugLogData('webrtc', 'sent', peerId, binaryData.length);
       return true;
     } catch (err) {
-      console.error(`[webrtc] Failed to send to ${peerId}:`, err);
+      debugLog('webrtc', `Failed to send to ${peerId}:`, err);
       return false;
     }
   }
 
   // Broadcast data to all connected peers
   broadcast(data: Uint8Array | string): void {
+    const binaryData =
+      typeof data === 'string' ? new TextEncoder().encode(data) : data;
+
     for (const [peerId, peerConn] of this.peers) {
       if (peerConn.dataChannel?.readyState === 'open') {
         try {
-          if (typeof data === 'string') {
-            peerConn.dataChannel.send(data);
-          } else {
-            peerConn.dataChannel.send(data.buffer as ArrayBuffer);
-          }
+          peerConn.dataChannel.send(binaryData.buffer as ArrayBuffer);
         } catch (err) {
-          console.error(`[webrtc] Failed to broadcast to ${peerId}:`, err);
+          debugLog('webrtc', `Failed to broadcast to ${peerId}:`, err);
         }
+      } else {
+        // Queue for peers whose channel isn't ready yet
+        peerConn.messageQueue.push(binaryData);
       }
     }
   }
@@ -274,8 +317,9 @@ export class WebRTCManager {
     if (peerConn) {
       peerConn.dataChannel?.close();
       peerConn.connection.close();
+      peerConn.messageQueue = []; // Clear queue
       this.peers.delete(peerId);
-      console.log(`[webrtc] Closed connection to ${peerId}`);
+      debugLog('webrtc', 'Closed connection to:', peerId);
     }
   }
 

@@ -9,6 +9,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { webrtc } from './webrtc';
 import { IndexeddbPersistence } from 'y-indexeddb';
+import { debugLog, debugLogData } from './debug';
 
 // Message types for our protocol
 const MESSAGE_SYNC = 0;
@@ -19,6 +20,7 @@ export class YjsProvider {
   awareness: Awareness;
   persistence: IndexeddbPersistence | null = null;
   private syncedPeers: Set<string> = new Set();
+  private syncInitiatedTo: Set<string> = new Set(); // Track who we've sent SyncStep1 to
 
   constructor(doc: Y.Doc) {
     this.doc = doc;
@@ -28,10 +30,7 @@ export class YjsProvider {
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       // Don't rebroadcast updates we received from peers
       if (origin === 'remote') return;
-      console.log(
-        '[YjsProvider] Local update originating from doc',
-        update.length,
-      );
+      debugLog('yjs', 'Local doc update, broadcasting', update.length, 'bytes');
       this.broadcastUpdate(update);
     });
 
@@ -49,7 +48,7 @@ export class YjsProvider {
       }) => {
         const changedClients = [...added, ...updated, ...removed];
         if (changedClients.length > 0) {
-          console.log('[YjsProvider] Local awareness update', {
+          debugLog('yjs', 'Local awareness update', {
             added,
             updated,
             removed,
@@ -67,23 +66,25 @@ export class YjsProvider {
   private handleConnectionChange(peerId: string, connected: boolean) {
     if (connected) {
       // New peer connected - initiate sync
-      console.log(`[yjs] Initiating sync with ${peerId}`);
+      debugLog('yjs', 'Peer connected, initiating sync with:', peerId);
       this.initiateSync(peerId);
     } else {
-      // Peer disconnected
-      console.log(`[yjs] Peer ${peerId} disconnected`);
+      // Peer disconnected - reset sync state
+      debugLog('yjs', 'Peer disconnected:', peerId);
       this.syncedPeers.delete(peerId);
+      this.syncInitiatedTo.delete(peerId);
     }
   }
 
   private initiateSync(peerId: string) {
-    // Send sync step 1
+    // Send sync step 1 (state vector)
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeSyncStep1(encoder, this.doc);
     const message = encoding.toUint8Array(encoder);
-    console.log(`[yjs] Sending sync step 1 to ${peerId}`);
+    debugLogData('yjs', 'sent', peerId, message.length, 'SyncStep1');
     webrtc.send(peerId, message);
+    this.syncInitiatedTo.add(peerId);
 
     // Also send awareness state
     const awarenessEncoder = encoding.createEncoder();
@@ -95,13 +96,13 @@ export class YjsProvider {
         Array.from(this.awareness.getStates().keys()),
       ),
     );
-    console.log(`[yjs] Sending initial awareness state to ${peerId}`);
-    webrtc.send(peerId, encoding.toUint8Array(awarenessEncoder));
+    const awarenessMessage = encoding.toUint8Array(awarenessEncoder);
+    debugLogData('yjs', 'sent', peerId, awarenessMessage.length, 'awareness');
+    webrtc.send(peerId, awarenessMessage);
   }
 
   private handleMessage(peerId: string, data: Uint8Array | string) {
     if (typeof data === 'string') return; // We only handle binary
-    console.log(`[yjs] Received message from ${peerId}, type: ${data[0]}`);
 
     const decoder = decoding.createDecoder(data);
     const messageType = decoding.readVarUint(decoder);
@@ -111,8 +112,10 @@ export class YjsProvider {
         this.handleSyncMessage(peerId, decoder);
         break;
       case MESSAGE_AWARENESS:
-        this.handleAwarenessMessage(decoder);
+        this.handleAwarenessMessage(peerId, decoder);
         break;
+      default:
+        debugLog('yjs', 'Unknown message type:', messageType, 'from:', peerId);
     }
   }
 
@@ -127,22 +130,55 @@ export class YjsProvider {
       'remote',
     );
 
+    // Log what we received
+    const msgNames = ['SyncStep1', 'SyncStep2', 'Update'];
+    debugLogData(
+      'yjs',
+      'received',
+      peerId,
+      0,
+      msgNames[syncMessageType] || `type-${syncMessageType}`,
+    );
+
     // If there's a response to send (sync step 2), send it
     if (encoding.length(encoder) > 1) {
-      webrtc.send(peerId, encoding.toUint8Array(encoder));
+      const response = encoding.toUint8Array(encoder);
+      debugLogData(
+        'yjs',
+        'sent',
+        peerId,
+        response.length,
+        'SyncStep2 response',
+      );
+      webrtc.send(peerId, response);
+    }
+
+    // If we received sync step 1 but haven't initiated sync to this peer yet, do so
+    // This ensures bidirectional sync when both peers connect
+    if (
+      syncMessageType === syncProtocol.messageYjsSyncStep1 &&
+      !this.syncInitiatedTo.has(peerId)
+    ) {
+      debugLog(
+        'yjs',
+        'Received SyncStep1, initiating our own sync to:',
+        peerId,
+      );
+      this.initiateSync(peerId);
     }
 
     // If we received sync step 2, mark as synced
     if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
       if (!this.syncedPeers.has(peerId)) {
         this.syncedPeers.add(peerId);
-        console.log(`[yjs] Synced with ${peerId}`);
+        debugLog('yjs', '✓ Fully synced with:', peerId);
       }
     }
   }
 
-  private handleAwarenessMessage(decoder: decoding.Decoder) {
+  private handleAwarenessMessage(peerId: string, decoder: decoding.Decoder) {
     const update = decoding.readVarUint8Array(decoder);
+    debugLogData('yjs', 'received', peerId, update.length, 'awareness');
     applyAwarenessUpdate(this.awareness, update, 'remote');
   }
 

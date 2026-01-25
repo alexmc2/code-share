@@ -8,7 +8,7 @@ interface Peer {
   peerId: string;
   socketId: string;
   name: string;
-  isHost: boolean;
+  joinedAt: number; // Server-assigned timestamp
 }
 
 interface Room {
@@ -76,9 +76,36 @@ function getOrCreateRoom(sessionId: string): Room {
   return room;
 }
 
-// Get participant list for a room (safe to broadcast)
-function getParticipantList(room: Room): Peer[] {
-  return Array.from(room.peers.values());
+// Get host ID - earliest joinedAt among connected peers
+function getHostId(room: Room): string | null {
+  if (room.peers.size === 0) return null;
+
+  let earliestPeer: Peer | null = null;
+  for (const peer of room.peers.values()) {
+    if (!earliestPeer || peer.joinedAt < earliestPeer.joinedAt) {
+      earliestPeer = peer;
+    }
+  }
+  return earliestPeer?.peerId ?? null;
+}
+
+// Get room state payload for broadcasting
+function getRoomState(sessionId: string, room: Room) {
+  const hostId = getHostId(room);
+  const participants = Array.from(room.peers.values()).map((p) => ({
+    peerId: p.peerId,
+    socketId: p.socketId,
+    name: p.name,
+    joinedAt: p.joinedAt,
+    isHost: p.peerId === hostId,
+  }));
+
+  return {
+    sessionId,
+    hostId,
+    participants,
+    participantCount: participants.length,
+  };
 }
 
 // Socket connection handler
@@ -103,13 +130,26 @@ io.on('connection', (socket: Socket) => {
       currentPeerId = peerId;
 
       const room = getOrCreateRoom(sessionId);
-      const isHost = room.peers.size === 0;
 
+      // Handle duplicate peerId - kick old socket if exists
+      const existingPeer = room.peers.get(peerId);
+      if (existingPeer && existingPeer.socketId !== socket.id) {
+        console.log(
+          `[room] Duplicate peerId ${peerId}, kicking old socket ${existingPeer.socketId}`,
+        );
+        const oldSocket = io.sockets.sockets.get(existingPeer.socketId);
+        if (oldSocket) {
+          oldSocket.emit('kicked', { reason: 'duplicate-peer-id' });
+          oldSocket.disconnect(true);
+        }
+      }
+
+      // Create peer with server-assigned timestamp
       const peer: Peer = {
         peerId,
         socketId: socket.id,
         name,
-        isHost,
+        joinedAt: Date.now(),
       };
 
       room.peers.set(peerId, peer);
@@ -119,14 +159,17 @@ io.on('connection', (socket: Socket) => {
         `[room] ${name} (${peerId}) joined ${sessionId}, total: ${room.peers.size}`,
       );
 
-      // Send current state to the joining peer
-      socket.emit('room-state', {
-        participants: getParticipantList(room),
-        isHost,
-      });
+      // Send current room state to the joining peer
+      socket.emit('room-state', getRoomState(sessionId, room));
 
-      // Notify others about new peer
-      socket.to(sessionId).emit('peer-joined', { peer });
+      // Notify others about new peer and send updated room state
+      const roomState = getRoomState(sessionId, room);
+      socket.to(sessionId).emit('peer-joined', {
+        peer: {
+          ...peer,
+          isHost: peer.peerId === roomState.hostId,
+        },
+      });
     },
   );
 
@@ -139,16 +182,11 @@ io.on('connection', (socket: Socket) => {
       room.peers.delete(currentPeerId);
       socket.to(currentRoom).emit('peer-left', { peerId: currentPeerId });
 
-      // If host left, assign new host
+      // Broadcast updated room state with new host if needed
       if (room.peers.size > 0) {
-        const firstPeer = room.peers.values().next().value;
-        if (
-          firstPeer &&
-          !Array.from(room.peers.values()).some((p) => p.isHost)
-        ) {
-          firstPeer.isHost = true;
-          io.to(currentRoom).emit('host-changed', { peerId: firstPeer.peerId });
-        }
+        const newRoomState = getRoomState(currentRoom, room);
+        io.to(currentRoom).emit('room-state', newRoomState);
+        console.log(`[room] New host after departure: ${newRoomState.hostId}`);
       }
 
       console.log(
