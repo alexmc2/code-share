@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSession } from '../lib/useSession';
 import { nanoid } from 'nanoid';
+import { Copy, Check } from 'lucide-react';
 
 interface ChatMessage {
   id: string;
@@ -20,6 +21,7 @@ export function Chat() {
   const { doc, localName } = useSession();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Get Y.Array for chat messages
@@ -63,6 +65,17 @@ export function Chat() {
     [input, localName, chatArray],
   );
 
+  // Handle copying message text to clipboard
+  const handleCopy = useCallback(async (msg: ChatMessage) => {
+    try {
+      await navigator.clipboard.writeText(msg.text);
+      setCopiedId(msg.id);
+      setTimeout(() => setCopiedId(null), 1000);
+    } catch (err) {
+      console.error('Failed to copy message:', err);
+    }
+  }, []);
+
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 px-4 pb-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-3 shrink-0">
@@ -77,17 +90,36 @@ export function Chat() {
           </p>
         ) : (
           messages.map((msg) => (
-            <div key={msg.id} className="bg-panel-2 rounded-lg px-3 py-2">
+            <div
+              key={msg.id}
+              className="group relative bg-panel-2 rounded-lg px-3 py-2"
+            >
               <div className="flex justify-between items-center mb-1">
                 <span className="text-xs font-semibold text-primary">
                   {escapeHtml(msg.name)}
                 </span>
-                <span className="text-[10px] text-text-muted">
-                  {new Date(msg.ts).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    className="copy-btn w-5 h-5 flex items-center justify-center rounded text-text-muted
+                               hover:text-text hover:bg-panel transition-colors
+                               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    onClick={() => handleCopy(msg)}
+                    aria-label="Copy message"
+                    title="Copy message"
+                  >
+                    {copiedId === msg.id ? (
+                      <Check className="w-3 h-3 text-success" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
+                  </button>
+                  <span className="text-[10px] text-text-muted">
+                    {new Date(msg.ts).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
               </div>
               <p className="text-sm text-text wrap-break-word">
                 {escapeHtml(msg.text)}

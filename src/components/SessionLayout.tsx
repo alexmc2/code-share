@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { type ConnectionStatus } from '../lib/session';
@@ -8,6 +8,13 @@ import { Participants } from './Participants';
 import { Chat } from './Chat';
 
 type Tab = 'code' | 'diagram';
+
+// Sidebar resize constraints
+const MIN_SIDEBAR_WIDTH = 280;
+const MIN_MAIN_WIDTH = 450;
+const MAX_SIDEBAR_RATIO = 0.7;
+const DEFAULT_SIDEBAR_WIDTH = 320;
+const STORAGE_KEY = 'sidebarWidth';
 
 interface SessionLayoutProps {
   status: ConnectionStatus;
@@ -21,6 +28,77 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+
+  // Sidebar width state with localStorage persistence
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH;
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored
+      ? Math.max(MIN_SIDEBAR_WIDTH, parseInt(stored, 10))
+      : DEFAULT_SIDEBAR_WIDTH;
+  });
+
+  // Refs for resize handling
+  const isResizing = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mainPanelRef = useRef<HTMLDivElement>(null);
+
+  // Clamp sidebar width to valid range
+  const clampWidth = useCallback((width: number) => {
+    const maxWidth = Math.min(
+      window.innerWidth * MAX_SIDEBAR_RATIO,
+      window.innerWidth - MIN_MAIN_WIDTH,
+    );
+    return Math.max(MIN_SIDEBAR_WIDTH, Math.min(width, maxWidth));
+  }, []);
+
+  // Handle resize drag
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (isMobile || sidebarCollapsed) return;
+      e.preventDefault();
+      isResizing.current = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [isMobile, sidebarCollapsed],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isResizing.current || !containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = containerRect.right - e.clientX;
+      const clamped = clampWidth(newWidth);
+      setSidebarWidth(clamped);
+    },
+    [clampWidth],
+  );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      // Persist to localStorage
+      localStorage.setItem(STORAGE_KEY, String(sidebarWidth));
+    },
+    [sidebarWidth],
+  );
+
+  // ResizeObserver for Monaco/canvas layout updates
+  useEffect(() => {
+    if (!mainPanelRef.current) return;
+    const observer = new ResizeObserver(() => {
+      // Dispatch custom event for Monaco and Whiteboard to listen to
+      window.dispatchEvent(new CustomEvent('workspace-resize'));
+    });
+    observer.observe(mainPanelRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   // Track viewport size for responsive behavior
   useEffect(() => {
@@ -196,16 +274,32 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
-        <div className="flex-1 overflow-hidden flex min-w-0">
+      <div ref={containerRef} className="flex-1 flex overflow-hidden min-h-0">
+        {/* Main workspace panel */}
+        <div
+          ref={mainPanelRef}
+          className="flex-1 overflow-hidden flex min-w-0"
+          style={{ minWidth: MIN_MAIN_WIDTH }}
+        >
           {activeTab === 'code' ? <CodeEditor /> : <Whiteboard />}
         </div>
 
         {/* Desktop/Tablet Sidebar - hidden on mobile */}
         <aside
-          className={`hidden md:flex flex-col border-l border-border bg-panel transition-all duration-200 ease-in-out shrink-0
-            ${sidebarCollapsed ? 'w-12' : 'w-64 lg:w-72'}`}
+          className="hidden md:flex flex-col border-l border-border bg-panel shrink-0 relative"
+          style={{ width: sidebarCollapsed ? 48 : sidebarWidth }}
         >
+          {/* Resize Handle - on left edge of sidebar */}
+          {!sidebarCollapsed && (
+            <div
+              className="resize-handle absolute left-0 top-0 bottom-0 hidden md:block"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              style={{ transform: 'translateX(-50%)' }}
+            />
+          )}
+
           {sidebarCollapsed ? (
             <div className="flex flex-col items-center py-4">
               <button

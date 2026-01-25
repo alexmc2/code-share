@@ -173,3 +173,44 @@
     display: none !important;
   }
 }
+
+/* Resize handle for sidebar */
+.resize-handle {
+  width: 8px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 150ms;
+  z-index: 20;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--color-border);
+  transition:
+    background 150ms,
+    width 150ms;
+}
+.resize-handle:hover::after {
+  background: var(--color-primary);
+  width: 4px;
+}
+
+/* Copy button on chat messages */
+.copy-btn {
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.copy-btn:focus,
+.group:hover .copy-btn {
+  opacity: 1;
+}
+@media (hover: none) {
+  .copy-btn {
+    opacity: 1;
+  }
+}
