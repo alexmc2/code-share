@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { useSession } from '../lib/useSession';
@@ -29,6 +29,23 @@ const LANGUAGES = [
   { id: 'css', label: 'CSS' },
   { id: 'json', label: 'JSON' },
 ];
+
+const LANGUAGE_PATHS: Record<string, string> = {
+  javascript: 'file:///main.jsx',
+  typescript: 'file:///main.tsx',
+  python: 'file:///main.py',
+  java: 'file:///main.java',
+  csharp: 'file:///main.cs',
+  go: 'file:///main.go',
+  sql: 'file:///main.sql',
+  html: 'file:///main.html',
+  css: 'file:///main.css',
+  json: 'file:///main.json',
+};
+
+function languageToPath(lang: string) {
+  return LANGUAGE_PATHS[lang] ?? 'file:///main.txt';
+}
 
 function addFormatOnSave(
   editor: Monaco.editor.IStandaloneCodeEditor,
@@ -76,8 +93,13 @@ function addFormatOnSave(
 export function CodeEditor() {
   const { doc } = useSession();
   const { isDark } = useTheme();
-  const [language, setLanguage] = useState('javascript');
+  const settings = useMemo(() => doc.getMap('settings'), [doc]);
+  const [language, setLanguage] = useState(() => {
+    const stored = settings.get('language');
+    return typeof stored === 'string' ? stored : 'javascript';
+  });
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
   const yTextRef = useRef<Y.Text | null>(null);
   const isRemoteChange = useRef(false);
   const isLocalChange = useRef(false);
@@ -133,12 +155,13 @@ export function CodeEditor() {
   // Sync Monaco content to Yjs
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    monacoRef.current = monaco;
     if (monaco) {
       addFormatOnSave(editor, monaco);
     }
 
     // Initialize editor with current Yjs content
-    const content = yText.toString();
+    const content = yTextRef.current?.toString() ?? '';
     if (content) {
       isRemoteChange.current = true;
       editor.setValue(content);
@@ -230,6 +253,35 @@ export function CodeEditor() {
     return () => yText.unobserve(observer);
   }, [yText]);
 
+  useEffect(() => {
+    const updateLanguage = () => {
+      const stored = settings.get('language');
+      if (typeof stored === 'string' && stored !== language) {
+        setLanguage(stored);
+      }
+    };
+
+    updateLanguage();
+    const observer = () => updateLanguage();
+    settings.observe(observer);
+    return () => settings.unobserve(observer);
+  }, [settings, language]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monaco || !model) return;
+
+    monaco.editor.setModelLanguage(model, language);
+    const content = yText.toString();
+    if (model.getValue() !== content) {
+      isRemoteChange.current = true;
+      editor.setValue(content);
+      isRemoteChange.current = false;
+    }
+  }, [language, yText]);
+
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
 
   // Reset code
@@ -253,7 +305,13 @@ export function CodeEditor() {
                      cursor-pointer focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
                      transition-colors"
           value={language}
-          onChange={(e) => setLanguage(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            setLanguage(next);
+            if (settings.get('language') !== next) {
+              settings.set('language', next);
+            }
+          }}
         >
           {LANGUAGES.map((lang) => (
             <option key={lang.id} value={lang.id}>
@@ -297,6 +355,7 @@ export function CodeEditor() {
         <Editor
           height="100%"
           language={language}
+          path={languageToPath(language)}
           theme={isDark ? 'vs-dark' : 'light'}
           onMount={handleEditorMount}
           beforeMount={handleBeforeMount}
