@@ -33,7 +33,7 @@ interface SessionLayoutProps {
 }
 
 export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
-  const { participants, isHost } = useSession();
+  const { participants, isHost, connectionType } = useSession();
   const { theme, toggle: toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('code');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -168,6 +168,23 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
               <span className="text-text-muted hidden sm:inline">
                 {statusConfig.text}
               </span>
+              {/* Connection type indicator */}
+              {status === 'connected' && connectionType !== 'unknown' && (
+                <span
+                  className={`ml-1 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-semibold uppercase ${
+                    connectionType === 'p2p'
+                      ? 'bg-success/20 text-success'
+                      : 'bg-warning/20 text-warning'
+                  }`}
+                  title={
+                    connectionType === 'p2p'
+                      ? 'Direct peer-to-peer connection'
+                      : 'Relayed via TURN server'
+                  }
+                >
+                  {connectionType === 'p2p' ? 'P2P' : 'RELAY'}
+                </span>
+              )}
             </div>
             {isHost && (
               <span className="text-[10px] sm:text-[12px] font-semibold bg-warning px-1 sm:px-1.5 py-0.5 rounded uppercase text-black">

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import * as Y from 'yjs';
 import { nanoid } from 'nanoid';
 import { signalling } from './signalling';
-import { webrtc } from './webrtc';
+import { webrtc, type ConnectionType } from './webrtc';
 import { YjsProvider } from './yjs-provider';
 import {
   SessionContext,
@@ -14,7 +14,12 @@ import { debugLog, setDebugState } from './debug';
 
 // Re-export types and context for convenience
 export { SessionContext };
-export type { Participant, ConnectionStatus, SessionContextValue };
+export type {
+  Participant,
+  ConnectionStatus,
+  SessionContextValue,
+  ConnectionType,
+};
 
 // Generate or retrieve local peer ID
 function getLocalPeerId(): string {
@@ -42,6 +47,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [isHost, setIsHost] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+  const [connectionType, setConnectionType] =
+    useState<ConnectionType>('unknown');
 
   // Yjs document - stable reference
   const doc = useMemo(() => new Y.Doc(), []);
@@ -101,6 +108,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       webrtc.setLocalPeerId(localPeerId);
       webrtc.setConnectionChangeHandler((peerId, connected) => {
         updateParticipantConnection(peerId, connected);
+      });
+      webrtc.setConnectionTypeChangeHandler((type) => {
+        setConnectionType(type);
       });
 
       // Set up signalling event handlers
@@ -206,6 +216,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     isHost,
     participants,
     status,
+    connectionType,
     doc,
     provider,
     joinSession,

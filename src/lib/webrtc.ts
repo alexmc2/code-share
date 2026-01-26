@@ -7,6 +7,9 @@ export type DataChannelMessageHandler = (
   data: Uint8Array | string,
 ) => void;
 
+// Connection type: P2P (direct), relay (via TURN), or unknown
+export type ConnectionType = 'p2p' | 'relay' | 'unknown';
+
 interface PeerConnection {
   peerId: string;
   connection: RTCPeerConnection;
@@ -14,6 +17,7 @@ interface PeerConnection {
   isConnected: boolean;
   messageQueue: Uint8Array[]; // Queue for messages before channel open
   iceCandidateCount: number; // Track ICE candidates for debugging
+  connectionType: ConnectionType; // Track if using relay or direct P2P
 }
 
 export class WebRTCManager {
@@ -21,6 +25,9 @@ export class WebRTCManager {
   private onMessageHandler: DataChannelMessageHandler | null = null;
   private onConnectionChangeHandler:
     | ((peerId: string, connected: boolean) => void)
+    | null = null;
+  private onConnectionTypeChangeHandler:
+    | ((connectionType: ConnectionType) => void)
     | null = null;
 
   constructor() {
@@ -47,6 +54,12 @@ export class WebRTCManager {
     this.onConnectionChangeHandler = handler;
   }
 
+  setConnectionTypeChangeHandler(
+    handler: (connectionType: ConnectionType) => void,
+  ) {
+    this.onConnectionTypeChangeHandler = handler;
+  }
+
   // Create a new peer connection and initiate the offer
   async createConnection(remotePeerId: string): Promise<void> {
     if (this.peers.has(remotePeerId)) {
@@ -67,6 +80,7 @@ export class WebRTCManager {
       isConnected: false,
       messageQueue: [],
       iceCandidateCount: 0,
+      connectionType: 'unknown',
     };
 
     this.peers.set(remotePeerId, peerConn);
@@ -107,6 +121,7 @@ export class WebRTCManager {
       isConnected: false,
       messageQueue: [],
       iceCandidateCount: 0,
+      connectionType: 'unknown',
     };
 
     this.peers.set(fromPeerId, peerConn);
@@ -183,6 +198,11 @@ export class WebRTCManager {
       if (peerConn.isConnected !== isConnected) {
         peerConn.isConnected = isConnected;
         this.onConnectionChangeHandler?.(peerId, isConnected);
+      }
+
+      // Detect connection type when connected
+      if (isConnected) {
+        this.detectConnectionType(peerConn);
       }
 
       if (
@@ -340,6 +360,91 @@ export class WebRTCManager {
   // Check if connected to a peer
   isConnectedTo(peerId: string): boolean {
     return this.peers.get(peerId)?.isConnected ?? false;
+  }
+
+  // Detect connection type by checking the selected ICE candidate pair
+  private detectConnectionType(peerConn: PeerConnection) {
+    const { connection, peerId } = peerConn;
+
+    // Use getStats to find the selected candidate pair
+    connection
+      .getStats()
+      .then((stats) => {
+        let connectionType: ConnectionType = 'unknown';
+
+        stats.forEach((report) => {
+          if (
+            report.type === 'candidate-pair' &&
+            report.state === 'succeeded'
+          ) {
+            // Found the active candidate pair, now check the candidates
+            const localCandidateId = report.localCandidateId;
+            const remoteCandidateId = report.remoteCandidateId;
+
+            let localType = '';
+            let remoteType = '';
+
+            stats.forEach((candidateReport) => {
+              if (candidateReport.id === localCandidateId) {
+                localType = candidateReport.candidateType || '';
+              }
+              if (candidateReport.id === remoteCandidateId) {
+                remoteType = candidateReport.candidateType || '';
+              }
+            });
+
+            // If either candidate is 'relay', we're using TURN
+            if (localType === 'relay' || remoteType === 'relay') {
+              connectionType = 'relay';
+            } else if (localType && remoteType) {
+              connectionType = 'p2p';
+            }
+
+            debugLog(
+              'webrtc',
+              `Connection type for ${peerId}: ${connectionType}`,
+              `(local: ${localType}, remote: ${remoteType})`,
+            );
+          }
+        });
+
+        // Update peer connection type
+        const prevType = peerConn.connectionType;
+        peerConn.connectionType = connectionType;
+
+        // Notify if type changed and we have a handler
+        if (prevType !== connectionType && this.onConnectionTypeChangeHandler) {
+          this.onConnectionTypeChangeHandler(this.getConnectionType());
+        }
+      })
+      .catch((err) => {
+        debugLog('webrtc', 'Failed to get connection stats:', err);
+      });
+  }
+
+  // Get aggregate connection type across all connected peers
+  // Returns 'relay' if ANY connection uses relay, 'p2p' if all are direct, 'unknown' otherwise
+  getConnectionType(): ConnectionType {
+    const connectedPeers = Array.from(this.peers.values()).filter(
+      (p) => p.isConnected,
+    );
+
+    if (connectedPeers.length === 0) {
+      return 'unknown';
+    }
+
+    // If any peer is using relay, return 'relay'
+    if (connectedPeers.some((p) => p.connectionType === 'relay')) {
+      return 'relay';
+    }
+
+    // If all connected peers are p2p, return 'p2p'
+    if (connectedPeers.every((p) => p.connectionType === 'p2p')) {
+      return 'p2p';
+    }
+
+    // Otherwise unknown (some connections still negotiating)
+    return 'unknown';
   }
 }
 

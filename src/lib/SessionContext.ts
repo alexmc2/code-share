@@ -1,6 +1,10 @@
 import { createContext } from 'react';
 import * as Y from 'yjs';
 import { YjsProvider } from './yjs-provider';
+import { type ConnectionType } from './webrtc';
+
+// Re-export ConnectionType for convenience
+export type { ConnectionType };
 
 // Types for session state
 export interface Participant {
@@ -24,6 +28,9 @@ export interface SessionContextValue {
 
   // Connection status
   status: ConnectionStatus;
+
+  // Connection type (P2P or RELAY)
+  connectionType: ConnectionType;
 
   // Yjs document and provider
   doc: Y.Doc;
