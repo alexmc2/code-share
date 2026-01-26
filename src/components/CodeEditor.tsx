@@ -17,6 +17,7 @@ import {
   DialogTrigger,
   DialogClose,
 } from './ui/dialog';
+import { Switch } from './ui/switch';
 
 const LANGUAGES = [
   { id: 'javascript', label: 'JavaScript' },
@@ -34,8 +35,10 @@ const LANGUAGES = [
 function addFormatOnSave(
   editor: Monaco.editor.IStandaloneCodeEditor,
   monaco: typeof Monaco,
+  checkEnabled: () => boolean,
 ) {
   const runFormat = async () => {
+    if (!checkEnabled()) return;
     const model = editor.getModel();
     if (!model) return;
 
@@ -78,6 +81,13 @@ export function CodeEditor() {
   const { doc } = useSession();
   const { isDark } = useTheme();
   const settings = useMemo(() => doc.getMap('settings'), [doc]);
+  const [isFormatterEnabled, setIsFormatterEnabled] = useState(true);
+  const isFormatterEnabledRef = useRef(isFormatterEnabled);
+
+  useEffect(() => {
+    isFormatterEnabledRef.current = isFormatterEnabled;
+  }, [isFormatterEnabled]);
+
   const [language, setLanguage] = useState(() => {
     const stored = settings.get('language');
     return typeof stored === 'string' ? stored : 'javascript';
@@ -156,7 +166,7 @@ export function CodeEditor() {
     editorRef.current = editor;
     monacoRef.current = monaco;
     if (monaco) {
-      addFormatOnSave(editor, monaco);
+      addFormatOnSave(editor, monaco, () => isFormatterEnabledRef.current);
     }
 
     // Initialize editor with current Yjs content
@@ -334,6 +344,25 @@ export function CodeEditor() {
               </option>
             ))}
           </select>
+
+          <div className="h-6 w-px bg-border mx-1" />
+
+          <div
+            className="flex items-center gap-2"
+            title="Enable Prettier formatting on save (Ctrl+S)"
+          >
+            <label
+              htmlFor="format-toggle"
+              className="text-xs text-text-muted hidden sm:inline cursor-pointer select-none"
+            >
+              Prettier
+            </label>
+            <Switch
+              id="format-toggle"
+              checked={isFormatterEnabled}
+              onCheckedChange={setIsFormatterEnabled}
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">

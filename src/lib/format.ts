@@ -17,9 +17,7 @@ type MonacoLang =
   | 'markdown'
   | string;
 
-function monacoToPrettierParser(
-  lang: MonacoLang,
-): BuiltInParserName | null {
+function monacoToPrettierParser(lang: MonacoLang): BuiltInParserName | null {
   switch (lang) {
     case 'javascript':
       return 'babel';
@@ -48,11 +46,11 @@ export async function formatWithPrettier(code: string, lang: MonacoLang) {
     const formatted = await prettier.format(code, {
       parser,
       plugins: [babel, estree, typescript, postcss, html],
-      singleQuote: true,
+      singleQuote: false,
       semi: true,
       trailingComma: 'es5',
-      printWidth: 80,
-      tabWidth: 2,
+      printWidth: 100,
+      tabWidth: 4,
     });
 
     return { ok: true as const, code: formatted };
