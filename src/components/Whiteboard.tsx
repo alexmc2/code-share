@@ -480,7 +480,7 @@ export function Whiteboard() {
 
     isDrawing.current = false;
 
-    // For pen, make sure we have at least 2 points
+    // For pen, at least 2 points
     if (
       tool === 'pen' &&
       currentOp.current.points &&
