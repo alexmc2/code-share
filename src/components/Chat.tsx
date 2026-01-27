@@ -35,6 +35,8 @@ export function Chat() {
     null,
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // Get Y.Array for chat messages
   const chatArray = doc.getArray<ChatMessage>('chat');
@@ -129,8 +131,38 @@ export function Chat() {
     [input, localName, chatArray],
   );
 
+  // Auto-resize textarea based on content
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    const container = chatContainerRef.current;
+    if (!textarea || !container) return;
+
+    // Reset height to auto to get the correct scrollHeight
+    textarea.style.height = 'auto';
+
+    // Calculate max height as 40% of the chat container
+    const containerHeight = container.clientHeight;
+    const maxHeight = containerHeight * 0.4;
+
+    // Set the height to scrollHeight, capped at maxHeight
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+    textarea.style.height = `${newHeight}px`;
+
+    // Enable overflow if content exceeds max height
+    textarea.style.overflowY =
+      textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, []);
+
+  // Adjust height when input changes
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [input, adjustTextareaHeight]);
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 px-4 pb-4">
+    <div
+      ref={chatContainerRef}
+      className="flex-1 flex flex-col min-h-0 min-w-0 px-4 pb-4"
+    >
       <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-3 shrink-0">
         Chat
       </h3>
@@ -199,22 +231,27 @@ export function Chat() {
       </div>
 
       {/* Input form - fixed at bottom */}
-      <form className="flex gap-2 mt-3 shrink-0" onSubmit={handleSend}>
+      <form
+        className="flex gap-2 mt-3 shrink-0 items-end"
+        onSubmit={handleSend}
+      >
         <textarea
+          ref={textareaRef}
           className="flex-1 min-w-0 bg-panel-2 border border-border rounded-lg px-3 py-2 text-sm text-text
-                     placeholder:text-text-muted resize-none
+                     placeholder:text-text-muted resize-none overflow-hidden
                      focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
-                     transition-colors"
+                     transition-colors leading-5"
+          style={{ minHeight: '38px' }}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
           maxLength={2000}
-          rows={2}
+          rows={1}
         />
         <button
           type="submit"
-          className="shrink-0 self-end bg-primary text-white px-4 py-2 text-sm font-medium rounded-lg
+          className="shrink-0 bg-primary text-white px-4 h-9.5 text-sm font-medium rounded-lg
                      hover:bg-primary-hover transition-colors
                      disabled:opacity-50 disabled:cursor-not-allowed
                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
