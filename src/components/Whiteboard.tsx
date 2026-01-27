@@ -207,6 +207,12 @@ export function Whiteboard() {
   const lastPanPoint = useRef<Point>({ x: 0, y: 0 });
   const touchCount = useRef(0);
 
+  // Zoom state for pinch-to-zoom (local only, not synced)
+  const [scale, setScale] = useState(1);
+  const lastPinchDistance = useRef(0);
+  const MIN_SCALE = 0.25;
+  const MAX_SCALE = 4;
+
   // Mobile detection for UI adjustments
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -314,8 +320,9 @@ export function Whiteboard() {
     ctx.fillStyle = isDark ? '#111827' : '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Apply viewport offset transformation
+    // Apply viewport offset and zoom transformation
     ctx.save();
+    ctx.scale(scale, scale);
     ctx.translate(-viewportOffset.x, -viewportOffset.y);
 
     // Get erased IDs from all ops (including historical ones)
@@ -354,7 +361,7 @@ export function Whiteboard() {
     }
 
     ctx.restore();
-  }, [getContext, opsArray, drawOp, isDark, viewportOffset]);
+  }, [getContext, opsArray, drawOp, isDark, viewportOffset, scale]);
 
   // Use requestAnimationFrame for smooth rendering
   const scheduleRender = useCallback(() => {
@@ -418,13 +425,13 @@ export function Whiteboard() {
         clientY = e.clientY;
       }
 
-      // Convert screen coordinates to world coordinates by adding viewport offset
+      // Convert screen coordinates to world coordinates by accounting for scale and viewport offset
       return {
-        x: clientX - rect.left + viewportOffset.x,
-        y: clientY - rect.top + viewportOffset.y,
+        x: (clientX - rect.left) / scale + viewportOffset.x,
+        y: (clientY - rect.top) / scale + viewportOffset.y,
       };
     },
-    [viewportOffset],
+    [viewportOffset, scale],
   );
 
   // Get center point of multiple touches (for pan gesture)
@@ -442,6 +449,14 @@ export function Whiteboard() {
       x: sumX / touches.length,
       y: sumY / touches.length,
     };
+  }, []);
+
+  // Get distance between two touches (for pinch gesture)
+  const getTouchDistance = useCallback((touches: React.TouchList): number => {
+    if (touches.length < 2) return 0;
+    const dx = touches[1].clientX - touches[0].clientX;
+    const dy = touches[1].clientY - touches[0].clientY;
+    return Math.hypot(dx, dy);
   }, []);
 
   // Start drawing
@@ -557,25 +572,26 @@ export function Whiteboard() {
       touchCount.current = e.touches.length;
 
       if (e.touches.length >= 2) {
-        // Two or more fingers: start panning
+        // Two or more fingers: start panning/pinching
         e.preventDefault();
         isPanning.current = true;
         isDrawing.current = false;
         currentOp.current = null;
         lastPanPoint.current = getTouchCenter(e.touches);
+        lastPinchDistance.current = getTouchDistance(e.touches);
       } else if (e.touches.length === 1 && !isPanning.current) {
         // Single finger: draw (only if not already panning)
         const syntheticEvent = e as React.TouchEvent;
         handleStart(syntheticEvent);
       }
     },
-    [handleStart, getTouchCenter],
+    [handleStart, getTouchCenter, getTouchDistance],
   );
 
   const handleTouchMove = useCallback(
     (e: React.TouchEvent) => {
       if (e.touches.length >= 2 || isPanning.current) {
-        // Panning mode
+        // Panning and/or pinch-zoom mode
         e.preventDefault();
         isPanning.current = true;
 
@@ -584,18 +600,32 @@ export function Whiteboard() {
         const deltaY = lastPanPoint.current.y - center.y;
         lastPanPoint.current = center;
 
+        // Handle pinch-to-zoom when two fingers are present
+        if (e.touches.length >= 2) {
+          const currentDistance = getTouchDistance(e.touches);
+          if (lastPinchDistance.current > 0 && currentDistance > 0) {
+            const pinchRatio = currentDistance / lastPinchDistance.current;
+            setScale((prevScale) => {
+              const newScale = prevScale * pinchRatio;
+              return Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+            });
+          }
+          lastPinchDistance.current = currentDistance;
+        }
+
+        // Apply panning (adjusted for current scale)
         setViewportOffset((prev) => {
           const canvas = canvasRef.current;
           const maxX = canvas
-            ? Math.max(0, CANVAS_WIDTH - canvas.width)
+            ? Math.max(0, CANVAS_WIDTH - canvas.width / scale)
             : CANVAS_WIDTH;
           const maxY = canvas
-            ? Math.max(0, CANVAS_HEIGHT - canvas.height)
+            ? Math.max(0, CANVAS_HEIGHT - canvas.height / scale)
             : CANVAS_HEIGHT;
 
           return {
-            x: Math.max(0, Math.min(maxX, prev.x + deltaX)),
-            y: Math.max(0, Math.min(maxY, prev.y + deltaY)),
+            x: Math.max(0, Math.min(maxX, prev.x + deltaX / scale)),
+            y: Math.max(0, Math.min(maxY, prev.y + deltaY / scale)),
           };
         });
       } else if (e.touches.length === 1 && !isPanning.current) {
@@ -603,7 +633,7 @@ export function Whiteboard() {
         handleMove(e);
       }
     },
-    [getTouchCenter, handleMove, setViewportOffset],
+    [getTouchCenter, getTouchDistance, handleMove, setViewportOffset, scale],
   );
 
   const handleTouchEnd = useCallback(
@@ -616,9 +646,11 @@ export function Whiteboard() {
           handleEnd();
         }
         touchCount.current = 0;
+        lastPinchDistance.current = 0;
       } else if (e.touches.length === 1 && isPanning.current) {
         // Went from multi-touch to single touch, stay in pan mode
         lastPanPoint.current = getTouchCenter(e.touches);
+        lastPinchDistance.current = 0;
       }
     },
     [handleEnd, getTouchCenter],
@@ -742,7 +774,9 @@ export function Whiteboard() {
             >
               <p className="text-text-muted">
                 Use <span className="font-semibold text-text">two fingers</span>{' '}
-                to pan/scroll around the whiteboard.
+                to pan around the whiteboard.{' '}
+                <span className="font-semibold text-text">Pinch</span> to zoom
+                in/out.
               </p>
             </PopoverContent>
           </Popover>
