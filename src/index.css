@@ -103,8 +103,7 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 
-  /* Map shadcn background to original app background if needed, but let's stick to defaults for now, 
-     but overriding body to use --color-bg (original) below ensures consistency */
+  /* Map shadcn background to original app background if needed, */
 }
 
 /* Dark mode overrides */

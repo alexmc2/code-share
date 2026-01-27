@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { SessionProvider } from './lib/session';
+import { SessionProvider } from './lib/session.js';
 import { ThemeProvider } from './components/ThemeProvider.tsx';
 import { LandingPage } from './pages/LandingPage';
 import { SessionPage } from './pages/SessionPage';

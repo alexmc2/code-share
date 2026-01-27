@@ -50,7 +50,7 @@ export async function formatWithPrettier(code: string, lang: MonacoLang) {
       semi: true,
       trailingComma: 'es5',
       printWidth: 100,
-      tabWidth: 4,
+      tabWidth: 2,
     });
 
     return { ok: true as const, code: formatted };

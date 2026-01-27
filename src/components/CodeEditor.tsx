@@ -102,6 +102,7 @@ export function CodeEditor() {
   const { isDark } = useTheme();
   const settings = useMemo(() => doc.getMap('settings'), [doc]);
   const [isFormatterEnabled, setIsFormatterEnabled] = useState(true);
+  const [isStrictMode, setIsStrictMode] = useState(true);
   const isFormatterEnabledRef = useRef(isFormatterEnabled);
 
   useEffect(() => {
@@ -314,6 +315,23 @@ export function CodeEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language]);
 
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco) return;
+
+    const options = {
+      noSemanticValidation: !isStrictMode,
+      noSyntaxValidation: !isStrictMode,
+    };
+
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions(
+      options,
+    );
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions(
+      options,
+    );
+  }, [isStrictMode]);
+
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -381,6 +399,25 @@ export function CodeEditor() {
               id="format-toggle"
               checked={isFormatterEnabled}
               onCheckedChange={setIsFormatterEnabled}
+            />
+          </div>
+
+          <div className="h-6 w-px bg-border mx-1" />
+
+          <div
+            className="flex items-center gap-2"
+            title="Toggle Strict Mode (Enable/Disable Diagnostics)"
+          >
+            <label
+              htmlFor="strict-mode-toggle"
+              className="text-xs text-text-muted hidden sm:inline cursor-pointer select-none"
+            >
+              Strict
+            </label>
+            <Switch
+              id="strict-mode-toggle"
+              checked={isStrictMode}
+              onCheckedChange={setIsStrictMode}
             />
           </div>
         </div>
