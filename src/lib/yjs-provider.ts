@@ -86,6 +86,24 @@ export class YjsProvider {
     webrtc.send(peerId, message);
     this.syncInitiatedTo.add(peerId);
 
+    // Also send the full document state as an update
+    // This ensures late joiners get all existing content immediately
+    const fullState = Y.encodeStateAsUpdate(this.doc);
+    if (fullState.length > 1) {
+      const updateEncoder = encoding.createEncoder();
+      encoding.writeVarUint(updateEncoder, MESSAGE_SYNC);
+      syncProtocol.writeUpdate(updateEncoder, fullState);
+      const updateMessage = encoding.toUint8Array(updateEncoder);
+      debugLogData(
+        'yjs',
+        'sent',
+        peerId,
+        updateMessage.length,
+        'FullStateUpdate',
+      );
+      webrtc.send(peerId, updateMessage);
+    }
+
     // Also send awareness state
     const awarenessEncoder = encoding.createEncoder();
     encoding.writeVarUint(awarenessEncoder, MESSAGE_AWARENESS);
