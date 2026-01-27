@@ -430,7 +430,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
                   <h2 className="text-sm font-semibold text-text">Messages</h2>
                   <button
                     className="w-6 h-6 rounded flex items-center justify-center text-text-muted

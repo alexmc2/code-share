@@ -69,7 +69,7 @@ function hitTest(point: Point, op: DrawOp): boolean {
   if (op.type === 'path') {
     if (!op.points || op.points.length < 2) return false;
     // Check distance to any point in path (simplified hit test)
-    // A better approach would be point-to-segment distance
+
     for (const p of op.points) {
       const dist = Math.hypot(p.x - point.x, p.y - point.y);
       if (dist < threshold) return true;
