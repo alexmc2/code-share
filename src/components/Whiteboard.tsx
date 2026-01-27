@@ -22,7 +22,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 // Drawing operation types
-type Tool = 'pen' | 'line' | 'rect' | 'circle' | 'eraser';
+type Tool = 'pen' | 'line' | 'rect' | 'circle' | 'eraser' | 'fill';
 
 interface Point {
   x: number;
@@ -32,7 +32,7 @@ interface Point {
 interface DrawOp {
   id: string;
   ts: number;
-  type: 'path' | 'line' | 'rect' | 'circle' | 'erase';
+  type: 'path' | 'line' | 'rect' | 'circle' | 'erase' | 'fill';
   colour: string;
   size: number;
   points?: Point[];
@@ -173,6 +173,93 @@ function hitTest(point: Point, op: DrawOp): boolean {
   }
 
   return false;
+}
+
+// Flood fill algorithm using scanline approach
+function floodFill(
+  ctx: CanvasRenderingContext2D,
+  startX: number,
+  startY: number,
+  fillColor: string,
+): void {
+  const canvas = ctx.canvas;
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Convert fill color to RGBA
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = 1;
+  tempCanvas.height = 1;
+  const tempCtx = tempCanvas.getContext('2d')!;
+  tempCtx.fillStyle = fillColor;
+  tempCtx.fillRect(0, 0, 1, 1);
+  const fillRGBA = tempCtx.getImageData(0, 0, 1, 1).data;
+
+  // Get image data
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  // Get target color at start position
+  const startIdx = (Math.floor(startY) * width + Math.floor(startX)) * 4;
+  if (startIdx < 0 || startIdx >= data.length) return;
+
+  const targetR = data[startIdx];
+  const targetG = data[startIdx + 1];
+  const targetB = data[startIdx + 2];
+  const targetA = data[startIdx + 3];
+
+  // Don't fill if clicking on the same color
+  if (
+    targetR === fillRGBA[0] &&
+    targetG === fillRGBA[1] &&
+    targetB === fillRGBA[2] &&
+    targetA === fillRGBA[3]
+  ) {
+    return;
+  }
+
+  // Color matching with tolerance
+  const tolerance = 32;
+  const matchesTarget = (idx: number) => {
+    return (
+      Math.abs(data[idx] - targetR) <= tolerance &&
+      Math.abs(data[idx + 1] - targetG) <= tolerance &&
+      Math.abs(data[idx + 2] - targetB) <= tolerance &&
+      Math.abs(data[idx + 3] - targetA) <= tolerance
+    );
+  };
+
+  const setPixel = (idx: number) => {
+    data[idx] = fillRGBA[0];
+    data[idx + 1] = fillRGBA[1];
+    data[idx + 2] = fillRGBA[2];
+    data[idx + 3] = fillRGBA[3];
+  };
+
+  // Scanline flood fill
+  const stack: [number, number][] = [[Math.floor(startX), Math.floor(startY)]];
+  const visited = new Set<number>();
+
+  while (stack.length > 0) {
+    const [x, y] = stack.pop()!;
+
+    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+
+    const idx = (y * width + x) * 4;
+    if (visited.has(idx)) continue;
+    if (!matchesTarget(idx)) continue;
+
+    visited.add(idx);
+    setPixel(idx);
+
+    // Add neighbors
+    stack.push([x + 1, y]);
+    stack.push([x - 1, y]);
+    stack.push([x, y + 1]);
+    stack.push([x, y - 1]);
+  }
+
+  ctx.putImageData(imageData, 0, 0);
 }
 
 export function Whiteboard() {
@@ -348,19 +435,48 @@ export function Whiteboard() {
       }
     }
 
-    // Draw all non-erased operations
+    // Draw all non-erased, non-fill operations first
     for (const op of ops) {
-      if (op.type !== 'erase' && !erasedIds.has(op.id)) {
+      if (op.type !== 'erase' && op.type !== 'fill' && !erasedIds.has(op.id)) {
         drawOp(ctx, op);
       }
     }
 
     // Draw current operation preview
-    if (currentOp.current && currentOp.current.type !== 'erase') {
+    if (
+      currentOp.current &&
+      currentOp.current.type !== 'erase' &&
+      currentOp.current.type !== 'fill'
+    ) {
       drawOp(ctx, currentOp.current);
     }
 
     ctx.restore();
+
+    // Now apply fill operations (on screen coordinates)
+    // Fill operations work on the rendered canvas, so they come after shape rendering
+    for (const op of ops) {
+      if (
+        op.type === 'fill' &&
+        !erasedIds.has(op.id) &&
+        op.x1 !== undefined &&
+        op.y1 !== undefined
+      ) {
+        // Convert world coordinates to screen coordinates
+        const screenX = (op.x1 - viewportOffset.x) * scale;
+        const screenY = (op.y1 - viewportOffset.y) * scale;
+
+        // Only fill if the point is within the canvas
+        if (
+          screenX >= 0 &&
+          screenX < canvas.width &&
+          screenY >= 0 &&
+          screenY < canvas.height
+        ) {
+          floodFill(ctx, screenX, screenY, op.colour);
+        }
+      }
+    }
   }, [getContext, opsArray, drawOp, isDark, viewportOffset, scale]);
 
   // Use requestAnimationFrame for smooth rendering
@@ -466,7 +582,26 @@ export function Whiteboard() {
       isDrawing.current = true;
       startPoint.current = pos;
 
-      if (tool === 'eraser') {
+      if (tool === 'fill') {
+        // Fill is an instant operation - execute immediately on click
+        const fillOp: DrawOp = {
+          id: nanoid(8),
+          ts: Date.now(),
+          type: 'fill',
+          colour,
+          size: 0,
+          x1: pos.x,
+          y1: pos.y,
+        };
+        opsArray.push([fillOp]);
+        undoStack.current.push(fillOp);
+        redoStack.current = [];
+        setCanUndo(true);
+        setCanRedo(false);
+        isDrawing.current = false;
+        scheduleRender();
+        return;
+      } else if (tool === 'eraser') {
         currentOp.current = {
           id: nanoid(8),
           ts: Date.now(),
@@ -500,7 +635,7 @@ export function Whiteboard() {
 
       scheduleRender();
     },
-    [tool, colour, size, getPosition, scheduleRender],
+    [tool, colour, size, getPosition, scheduleRender, opsArray],
   );
 
   // Continue drawing
@@ -786,6 +921,13 @@ export function Whiteboard() {
             title="Eraser (select and delete)"
           >
             🧹
+          </button>
+          <button
+            className={toolButtonClass(tool === 'fill')}
+            onClick={() => setTool('fill')}
+            title="Fill Bucket"
+          >
+            🪣
           </button>
         </div>
 
