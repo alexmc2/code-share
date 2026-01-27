@@ -75,9 +75,7 @@
   --card-foreground: oklch(0.129 0.042 264.695);
   --popover: oklch(1 0 0); /* Matches white panel */
   --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(
-    0.605 0.165 242.067
-  ); /* Adjusted to match #0ea5e9 roughly or keep shadcn default? Keeping shadcn default or mapping? */
+  --primary: oklch(0.605 0.165 242.067); /* Adjusted to match #0ea5e9 roughly */
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -102,8 +100,6 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-
-  /* Map shadcn background to original app background if needed, */
 }
 
 /* Dark mode overrides */
@@ -157,7 +153,7 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
-    @apply border-border; /* apply shadcn border color to all borders by default? */
+    @apply border-border; 
   }
 
   html,

@@ -38,8 +38,7 @@ export function LandingPage() {
             <Code2 className="w-8 h-8 text-primary mb-4" />
             <h3 className="text-lg font-semibold text-text mb-2">Editor</h3>
             <p className="text-text/80 text-sm">
-              Monaco-based code editor with syntax highlighting and multi-cursor
-              support.
+              Monaco-based code editor with prettier integration.
             </p>
           </div>
           <div className="bg-panel-2 p-6 rounded-xl border border-border backdrop-blur-sm">

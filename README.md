@@ -242,7 +242,6 @@ VITE_TURN_CREDENTIAL=password
 
 ## Known Limitations
 
-- **2-participant optimized**: Works with >2 peers but UI is designed for pair programming
 - **Eraser simplified**: Eraser tool is basic (no object selection in MVP)
 - **No remote cursors**: Monaco cursor sharing not implemented in MVP
 

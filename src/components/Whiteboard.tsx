@@ -59,6 +59,10 @@ const SIZES = [
   { label: 'L', value: 10 },
 ];
 
+// Virtual canvas size - users can pan around this area
+const CANVAS_WIDTH = 2000;
+const CANVAS_HEIGHT = 2000;
+
 function hitTest(point: Point, op: DrawOp): boolean {
   const threshold = Math.max(5, op.size);
 
@@ -196,6 +200,12 @@ export function Whiteboard() {
   const undoStack = useRef<DrawOp[]>([]);
   const redoStack = useRef<DrawOp[]>([]);
 
+  // Viewport state for pan/scroll (mobile two-finger gesture)
+  const [viewportOffset, setViewportOffset] = useState<Point>({ x: 0, y: 0 });
+  const isPanning = useRef(false);
+  const lastPanPoint = useRef<Point>({ x: 0, y: 0 });
+  const touchCount = useRef(0);
+
   // Get canvas context
   const getContext = useCallback(() => {
     const canvas = canvasRef.current;
@@ -292,6 +302,10 @@ export function Whiteboard() {
     ctx.fillStyle = isDark ? '#111827' : '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Apply viewport offset transformation
+    ctx.save();
+    ctx.translate(-viewportOffset.x, -viewportOffset.y);
+
     // Get erased IDs from all ops (including historical ones)
     const erasedIds = new Set<string>();
     const ops = opsArray.toArray();
@@ -326,7 +340,9 @@ export function Whiteboard() {
     if (currentOp.current && currentOp.current.type !== 'erase') {
       drawOp(ctx, currentOp.current);
     }
-  }, [getContext, opsArray, drawOp, isDark]);
+
+    ctx.restore();
+  }, [getContext, opsArray, drawOp, isDark, viewportOffset]);
 
   // Use requestAnimationFrame for smooth rendering
   const scheduleRender = useCallback(() => {
@@ -373,7 +389,7 @@ export function Whiteboard() {
     };
   }, [opsArray, render, scheduleRender]);
 
-  // Get mouse/touch position relative to canvas
+  // Get mouse/touch position relative to canvas, accounting for viewport offset
   const getPosition = useCallback(
     (e: React.MouseEvent | React.TouchEvent): Point => {
       const canvas = canvasRef.current;
@@ -390,13 +406,31 @@ export function Whiteboard() {
         clientY = e.clientY;
       }
 
+      // Convert screen coordinates to world coordinates by adding viewport offset
       return {
-        x: clientX - rect.left,
-        y: clientY - rect.top,
+        x: clientX - rect.left + viewportOffset.x,
+        y: clientY - rect.top + viewportOffset.y,
       };
     },
-    [],
+    [viewportOffset],
   );
+
+  // Get center point of multiple touches (for pan gesture)
+  const getTouchCenter = useCallback((touches: React.TouchList): Point => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+
+    let sumX = 0;
+    let sumY = 0;
+    for (let i = 0; i < touches.length; i++) {
+      sumX += touches[i].clientX;
+      sumY += touches[i].clientY;
+    }
+    return {
+      x: sumX / touches.length,
+      y: sumY / touches.length,
+    };
+  }, []);
 
   // Start drawing
   const handleStart = useCallback(
@@ -504,6 +538,79 @@ export function Whiteboard() {
     currentOp.current = null;
     scheduleRender();
   }, [tool, opsArray, scheduleRender]);
+
+  // Touch-specific handlers for pan gesture (two-finger) vs drawing (one-finger)
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      touchCount.current = e.touches.length;
+
+      if (e.touches.length >= 2) {
+        // Two or more fingers: start panning
+        e.preventDefault();
+        isPanning.current = true;
+        isDrawing.current = false;
+        currentOp.current = null;
+        lastPanPoint.current = getTouchCenter(e.touches);
+      } else if (e.touches.length === 1 && !isPanning.current) {
+        // Single finger: draw (only if not already panning)
+        const syntheticEvent = e as React.TouchEvent;
+        handleStart(syntheticEvent);
+      }
+    },
+    [handleStart, getTouchCenter],
+  );
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length >= 2 || isPanning.current) {
+        // Panning mode
+        e.preventDefault();
+        isPanning.current = true;
+
+        const center = getTouchCenter(e.touches);
+        const deltaX = lastPanPoint.current.x - center.x;
+        const deltaY = lastPanPoint.current.y - center.y;
+        lastPanPoint.current = center;
+
+        setViewportOffset((prev) => {
+          const canvas = canvasRef.current;
+          const maxX = canvas
+            ? Math.max(0, CANVAS_WIDTH - canvas.width)
+            : CANVAS_WIDTH;
+          const maxY = canvas
+            ? Math.max(0, CANVAS_HEIGHT - canvas.height)
+            : CANVAS_HEIGHT;
+
+          return {
+            x: Math.max(0, Math.min(maxX, prev.x + deltaX)),
+            y: Math.max(0, Math.min(maxY, prev.y + deltaY)),
+          };
+        });
+      } else if (e.touches.length === 1 && !isPanning.current) {
+        // Drawing mode
+        handleMove(e);
+      }
+    },
+    [getTouchCenter, handleMove, setViewportOffset],
+  );
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 0) {
+        // All fingers lifted
+        if (isPanning.current) {
+          isPanning.current = false;
+        } else {
+          handleEnd();
+        }
+        touchCount.current = 0;
+      } else if (e.touches.length === 1 && isPanning.current) {
+        // Went from multi-touch to single touch, stay in pan mode
+        lastPanPoint.current = getTouchCenter(e.touches);
+      }
+    },
+    [handleEnd, getTouchCenter],
+  );
 
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
 
@@ -705,9 +812,9 @@ export function Whiteboard() {
           onMouseMove={handleMove}
           onMouseUp={handleEnd}
           onMouseLeave={handleEnd}
-          onTouchStart={handleStart}
-          onTouchMove={handleMove}
-          onTouchEnd={handleEnd}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         />
       </div>
     </div>
