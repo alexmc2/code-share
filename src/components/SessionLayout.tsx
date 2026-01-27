@@ -92,11 +92,14 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
   }, []);
 
   // Handle resize drag
+  const [isDragging, setIsDragging] = useState(false);
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (isMobile || sidebarCollapsed) return;
       e.preventDefault();
       isResizing.current = true;
+      setIsDragging(true);
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -119,6 +122,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
     (e: React.PointerEvent) => {
       if (!isResizing.current) return;
       isResizing.current = false;
+      setIsDragging(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
@@ -429,7 +433,9 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
 
           {/* Desktop/Tablet Sidebar - hidden on mobile */}
           <aside
-            className="hidden md:flex flex-col border-l border-border bg-panel shrink-0 relative"
+            className={`hidden md:flex flex-col border-l border-border bg-panel shrink-0 relative transition-[width] ease-in-out ${
+              isDragging ? 'duration-0' : 'duration-300'
+            }`}
             style={{ width: sidebarCollapsed ? 48 : sidebarWidth }}
           >
             {/* Resize Handle - on left edge of sidebar */}
@@ -442,7 +448,6 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                 style={{ transform: 'translateX(-50%)' }}
               />
             )}
-
             {sidebarCollapsed ? (
               <div className="flex flex-col items-center py-4">
                 <button
