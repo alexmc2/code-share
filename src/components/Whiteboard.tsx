@@ -19,6 +19,7 @@ import {
   DialogTrigger,
   DialogClose,
 } from './ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 // Drawing operation types
 type Tool = 'pen' | 'line' | 'rect' | 'circle' | 'eraser';
@@ -205,6 +206,17 @@ export function Whiteboard() {
   const isPanning = useRef(false);
   const lastPanPoint = useRef<Point>({ x: 0, y: 0 });
   const touchCount = useRef(0);
+
+  // Mobile detection for UI adjustments
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.matchMedia('(max-width: 768px)').matches);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Get canvas context
   const getContext = useCallback(() => {
@@ -750,34 +762,52 @@ export function Whiteboard() {
 
         {/* Actions */}
         <div className="flex gap-2 items-center">
-          <Button
-            variant="ghost"
-            size="icon"
+          <button
             onClick={handleUndo}
             disabled={!canUndo}
             title="Undo"
+            className={`flex items-center justify-center rounded transition-all
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+              disabled:opacity-40 disabled:cursor-not-allowed
+              ${
+                isMobile
+                  ? 'w-9 h-9 text-base bg-panel-2 border border-border hover:bg-border/50'
+                  : 'w-8 h-8 text-sm hover:bg-border/30'
+              }`}
           >
             ↩
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
+          </button>
+          <button
             onClick={handleRedo}
             disabled={!canRedo}
             title="Redo"
+            className={`flex items-center justify-center rounded transition-all
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+              disabled:opacity-40 disabled:cursor-not-allowed
+              ${
+                isMobile
+                  ? 'w-9 h-9 text-base bg-panel-2 border border-border hover:bg-border/50'
+                  : 'w-8 h-8 text-sm hover:bg-border/30'
+              }`}
           >
             ↪
-          </Button>
+          </button>
 
           <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
             <DialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-danger hover:text-danger hover:bg-danger/10"
+              <button
+                title="Clear All"
+                className={`flex items-center justify-center rounded transition-all text-danger
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+                  hover:bg-danger/10
+                  ${
+                    isMobile
+                      ? 'w-9 h-9 text-base bg-panel-2 border border-border'
+                      : 'w-8 h-8 text-sm'
+                  }`}
               >
                 🗑️
-              </Button>
+              </button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -797,6 +827,33 @@ export function Whiteboard() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* Mobile pan hint */}
+          {isMobile && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  title="Pan hint"
+                  className="w-6 h-6 ml-auto flex items-center justify-center rounded-full
+                    bg-primary/20 text-primary text-xs font-semibold
+                    hover:bg-primary/30 transition-colors"
+                >
+                  i
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                align="end"
+                className="w-auto max-w-50 p-3 text-sm"
+              >
+                <p className="text-text-muted">
+                  Use{' '}
+                  <span className="font-semibold text-text">two fingers</span>{' '}
+                  to pan/scroll around the whiteboard.
+                </p>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
       </div>
 
