@@ -175,11 +175,156 @@ function hitTest(point: Point, op: DrawOp): boolean {
   return false;
 }
 
+// Optimized flood fill using scanline algorithm with span-based filling
+// Much faster than per-pixel approach for large areas
+function floodFill(
+  ctx: CanvasRenderingContext2D,
+  startX: number,
+  startY: number,
+  fillColor: string,
+): void {
+  const canvas = ctx.canvas;
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Clamp start position to canvas bounds
+  const x = Math.floor(Math.max(0, Math.min(width - 1, startX)));
+  const y = Math.floor(Math.max(0, Math.min(height - 1, startY)));
+
+  // Convert fill color to RGBA
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = 1;
+  tempCanvas.height = 1;
+  const tempCtx = tempCanvas.getContext('2d')!;
+  tempCtx.fillStyle = fillColor;
+  tempCtx.fillRect(0, 0, 1, 1);
+  const fillRGBA = tempCtx.getImageData(0, 0, 1, 1).data;
+
+  // Get image data
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  // Get target color at start position
+  const startIdx = (y * width + x) * 4;
+  const targetR = data[startIdx];
+  const targetG = data[startIdx + 1];
+  const targetB = data[startIdx + 2];
+  const targetA = data[startIdx + 3];
+
+  // Don't fill if clicking on the same color
+  if (
+    Math.abs(targetR - fillRGBA[0]) < 5 &&
+    Math.abs(targetG - fillRGBA[1]) < 5 &&
+    Math.abs(targetB - fillRGBA[2]) < 5 &&
+    Math.abs(targetA - fillRGBA[3]) < 5
+  ) {
+    return;
+  }
+
+  // Color matching with tolerance (helps with anti-aliasing)
+  const tolerance = 32;
+  const matchesTarget = (idx: number): boolean => {
+    return (
+      Math.abs(data[idx] - targetR) <= tolerance &&
+      Math.abs(data[idx + 1] - targetG) <= tolerance &&
+      Math.abs(data[idx + 2] - targetB) <= tolerance &&
+      Math.abs(data[idx + 3] - targetA) <= tolerance
+    );
+  };
+
+  // Use Uint8Array for fast visited tracking (much faster than Set)
+  const visited = new Uint8Array(width * height);
+
+  // Scanline fill using spans
+  const stack: [number, number, number, number][] = []; // [x1, x2, y, direction]
+
+  // Find initial span
+  let x1 = x;
+  let x2 = x;
+  while (x1 > 0 && matchesTarget((y * width + x1 - 1) * 4)) x1--;
+  while (x2 < width - 1 && matchesTarget((y * width + x2 + 1) * 4)) x2++;
+
+  stack.push([x1, x2, y, 1]); // down
+  stack.push([x1, x2, y, -1]); // up
+
+  while (stack.length > 0) {
+    const [sx1, sx2, sy, dy] = stack.pop()!;
+    const ny = sy + dy;
+
+    if (ny < 0 || ny >= height) continue;
+
+    let cx = sx1;
+    while (cx <= sx2) {
+      const pixelIdx = ny * width + cx;
+      const dataIdx = pixelIdx * 4;
+
+      // Skip if already visited or doesn't match
+      if (visited[pixelIdx] || !matchesTarget(dataIdx)) {
+        cx++;
+        continue;
+      }
+
+      // Find span boundaries
+      let spanX1 = cx;
+      let spanX2 = cx;
+
+      // Extend left
+      while (spanX1 > 0) {
+        const leftIdx = ny * width + spanX1 - 1;
+        if (visited[leftIdx] || !matchesTarget(leftIdx * 4)) break;
+        spanX1--;
+      }
+
+      // Extend right and fill
+      while (spanX2 < width) {
+        const rightIdx = ny * width + spanX2;
+        if (visited[rightIdx] || !matchesTarget(rightIdx * 4)) break;
+
+        // Fill this pixel
+        visited[rightIdx] = 1;
+        const di = rightIdx * 4;
+        data[di] = fillRGBA[0];
+        data[di + 1] = fillRGBA[1];
+        data[di + 2] = fillRGBA[2];
+        data[di + 3] = fillRGBA[3];
+
+        spanX2++;
+      }
+      spanX2--;
+
+      // Also mark and fill the left extension
+      for (let fx = spanX1; fx < cx; fx++) {
+        const fillIdx = ny * width + fx;
+        visited[fillIdx] = 1;
+        const di = fillIdx * 4;
+        data[di] = fillRGBA[0];
+        data[di + 1] = fillRGBA[1];
+        data[di + 2] = fillRGBA[2];
+        data[di + 3] = fillRGBA[3];
+      }
+
+      // Add spans for next rows
+      stack.push([spanX1, spanX2, ny, dy]);
+      // Check opposite direction if we extended beyond original span
+      if (spanX1 < sx1) stack.push([spanX1, sx1 - 1, ny, -dy]);
+      if (spanX2 > sx2) stack.push([sx2 + 1, spanX2, ny, -dy]);
+
+      cx = spanX2 + 1;
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+}
+
 export function Whiteboard() {
   const { doc } = useSession();
   const { isDark } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Offscreen canvas for consistent world-space rendering
+  // This ensures flood fill works identically on all devices
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Tool state
   const [tool, setTool] = useState<Tool>('pen');
@@ -251,11 +396,7 @@ export function Whiteboard() {
     ctx.lineJoin = 'round';
 
     switch (op.type) {
-      case 'fill':
-        // Fill the entire virtual canvas with the fill color
-        // This is rendered FIRST, so strokes will appear on top
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        break;
+      // Note: 'fill' operations are handled separately via floodFill in render()
 
       case 'path':
         if (!op.points || op.points.length < 2) break;
@@ -314,7 +455,7 @@ export function Whiteboard() {
     }
   }, []);
 
-  // Render all operations
+  // Render all operations using offscreen canvas for consistent flood fill
   const render = useCallback(() => {
     const ctx = getContext();
     if (!ctx) return;
@@ -322,16 +463,22 @@ export function Whiteboard() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Clear canvas with theme-appropriate background
-    ctx.fillStyle = isDark ? '#111827' : '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Create or reuse offscreen canvas at fixed world size
+    // This ensures flood fill works identically on all devices
+    if (!offscreenCanvasRef.current) {
+      offscreenCanvasRef.current = document.createElement('canvas');
+      offscreenCanvasRef.current.width = CANVAS_WIDTH;
+      offscreenCanvasRef.current.height = CANVAS_HEIGHT;
+    }
+    const offscreen = offscreenCanvasRef.current;
+    const offCtx = offscreen.getContext('2d');
+    if (!offCtx) return;
 
-    // Apply viewport offset and zoom transformation
-    ctx.save();
-    ctx.scale(scale, scale);
-    ctx.translate(-viewportOffset.x, -viewportOffset.y);
+    // Clear offscreen canvas with theme-appropriate background
+    offCtx.fillStyle = isDark ? '#111827' : '#ffffff';
+    offCtx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Get erased IDs from all ops (including historical ones)
+    // Get erased IDs from all ops
     const erasedIds = new Set<string>();
     const ops = opsArray.toArray();
 
@@ -354,33 +501,54 @@ export function Whiteboard() {
       }
     }
 
-    // RENDER ORDER: Fills first, then strokes on top
-    // This ensures fills are background layers and shapes always appear above them
-
-    // 1. Draw fill operations first (sorted by timestamp - they're already in order in the array)
+    // Process operations in chronological order
+    // For fill operations, we apply flood fill at the stored position
+    // This renders to the offscreen canvas in world coordinates
     for (const op of ops) {
-      if (op.type === 'fill' && !erasedIds.has(op.id)) {
-        drawOp(ctx, op);
+      if (erasedIds.has(op.id)) continue;
+
+      if (op.type === 'fill') {
+        // Apply flood fill at the world position stored in the operation
+        if (op.x1 !== undefined && op.y1 !== undefined) {
+          floodFill(offCtx, op.x1, op.y1, op.colour);
+        }
+      } else if (op.type !== 'erase') {
+        // Draw stroke operations
+        drawOp(offCtx, op);
       }
     }
 
-    // 2. Draw all stroke operations (non-erased, non-fill) on top of fills
-    for (const op of ops) {
-      if (op.type !== 'erase' && op.type !== 'fill' && !erasedIds.has(op.id)) {
-        drawOp(ctx, op);
-      }
-    }
-
-    // 3. Draw current operation preview (for strokes only, fills are instant)
+    // Draw current operation preview (for strokes only, fills are instant)
     if (
       currentOp.current &&
       currentOp.current.type !== 'erase' &&
       currentOp.current.type !== 'fill'
     ) {
-      drawOp(ctx, currentOp.current);
+      drawOp(offCtx, currentOp.current);
     }
 
-    ctx.restore();
+    // Now copy the visible viewport portion from offscreen canvas to screen
+    ctx.fillStyle = isDark ? '#111827' : '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Calculate source rectangle (what part of the world canvas to show)
+    const srcX = Math.max(0, viewportOffset.x);
+    const srcY = Math.max(0, viewportOffset.y);
+    const srcW = canvas.width / scale;
+    const srcH = canvas.height / scale;
+
+    // Draw the visible portion scaled to fill the screen canvas
+    ctx.drawImage(
+      offscreen,
+      srcX,
+      srcY,
+      srcW,
+      srcH, // Source rectangle (world coords)
+      0,
+      0,
+      canvas.width,
+      canvas.height, // Destination rectangle (screen)
+    );
   }, [getContext, opsArray, drawOp, isDark, viewportOffset, scale]);
 
   // Use requestAnimationFrame for smooth rendering
