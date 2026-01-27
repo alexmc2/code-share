@@ -153,7 +153,7 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
-    @apply border-border; 
+    @apply border-border;
   }
 
   html,
@@ -219,6 +219,18 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.25);
+  }
+}
+
+@layer utilities {
+  /* Dynamic viewport height - accounts for mobile browser chrome */
+  .h-dvh {
+    height: 100vh; /* Fallback for older browsers */
+    height: 100dvh; /* Dynamic viewport height */
+  }
+  .min-h-dvh {
+    min-height: 100vh;
+    min-height: 100dvh;
   }
 }
 

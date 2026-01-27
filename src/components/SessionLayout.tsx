@@ -17,6 +17,7 @@ import {
   ChevronRight,
   X,
   Check,
+  Github,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import {
@@ -201,7 +202,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                 )}
               </div>
               {isHost && (
-                <span className="text-[10px] sm:text-[12px] font-semibold bg-warning px-1 sm:px-1.5 py-0.5 rounded uppercase text-black">
+                <span className="text-[10px] sm:text-[12px] font-semibold bg-warning px-1 sm:px-1.5 py-0.5 rounded uppercase text-black hidden md:inline">
                   Host
                 </span>
               )}
@@ -298,6 +299,17 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                 ) : (
                   <Moon className="h-4 w-4" />
                 )}
+              </Button>
+              {/* GitHub link */}
+              <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                <a
+                  href="https://github.com/alexmc2/code-share"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View source on GitHub"
+                >
+                  <Github className="h-4 w-4" />
+                </a>
               </Button>
               {/* Leave Session button */}
               <Button

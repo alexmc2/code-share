@@ -113,7 +113,7 @@ export function SessionPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-bg text-text">
+    <div className="h-dvh flex flex-col bg-bg text-text">
       <SessionLayout status={status} onCopyLink={handleCopyLink} />
     </div>
   );

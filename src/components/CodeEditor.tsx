@@ -383,8 +383,9 @@ export function CodeEditor() {
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2 bg-panel border-b border-border min-w-0">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2 px-2 sm:px-4 py-2 bg-panel border-b border-border min-w-0">
+        {/* Language selector */}
+        <div className="flex items-center gap-2 min-w-0">
           <label
             htmlFor="language-select"
             className="text-xs text-text-muted hidden sm:inline text-nowrap shrink-0"
@@ -400,7 +401,7 @@ export function CodeEditor() {
               }
             }}
           >
-            <SelectTrigger className="w-35 h-9 bg-panel-2 border-border text-text">
+            <SelectTrigger className="w-28 sm:w-35 h-8 bg-panel-2 border-border text-text text-xs sm:text-sm">
               <SelectValue placeholder="Select Language" />
             </SelectTrigger>
             <SelectContent>
@@ -411,11 +412,14 @@ export function CodeEditor() {
               ))}
             </SelectContent>
           </Select>
+        </div>
 
-          <div className="h-6 w-px bg-border mx-1" />
+        {/* Toggles */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="h-6 w-px bg-border hidden sm:block" />
 
           <div
-            className="flex items-center gap-2"
+            className="flex items-center gap-1.5 sm:gap-2"
             title="Enable Prettier formatting on save (Ctrl+S)"
           >
             <label
@@ -431,10 +435,10 @@ export function CodeEditor() {
             />
           </div>
 
-          <div className="h-6 w-px bg-border mx-1" />
+          <div className="h-6 w-px bg-border hidden sm:block" />
 
           <div
-            className="flex items-center gap-2"
+            className="flex items-center gap-1.5 sm:gap-2"
             title="Toggle Strict Mode (Enable/Disable Diagnostics)"
           >
             <label
@@ -451,7 +455,11 @@ export function CodeEditor() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Spacer */}
+        <div className="flex-1 min-w-2" />
+
+        {/* Copy and Reset */}
+        <div className="flex items-center gap-1.5 shrink-0">
           <Button
             variant="outline"
             size="icon"
