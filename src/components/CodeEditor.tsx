@@ -18,6 +18,13 @@ import {
   DialogClose,
 } from './ui/dialog';
 import { Switch } from './ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 
 const LANGUAGES = [
   { id: 'javascript', label: 'JavaScript' },
@@ -31,6 +38,19 @@ const LANGUAGES = [
   { id: 'css', label: 'CSS' },
   { id: 'json', label: 'JSON' },
 ];
+
+const LANGUAGE_EXTENSIONS: Record<string, string> = {
+  javascript: 'js',
+  typescript: 'ts',
+  python: 'py',
+  java: 'java',
+  csharp: 'cs',
+  go: 'go',
+  sql: 'sql',
+  html: 'html',
+  css: 'css',
+  json: 'json',
+};
 
 function addFormatOnSave(
   editor: Monaco.editor.IStandaloneCodeEditor,
@@ -324,26 +344,26 @@ export function CodeEditor() {
           >
             Language:
           </label>
-          <select
-            id="language-select"
-            className="bg-panel-2 border border-border text-text px-2 sm:px-3 py-1.5 rounded-md text-sm
-                       cursor-pointer focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
-                       transition-colors w-full sm:w-auto max-w-32.5 sm:max-w-none truncate"
+          <Select
             value={language}
-            onChange={(e) => {
-              const next = e.target.value;
-              setLanguage(next);
-              if (settings.get('language') !== next) {
-                settings.set('language', next);
+            onValueChange={(value) => {
+              setLanguage(value);
+              if (settings.get('language') !== value) {
+                settings.set('language', value);
               }
             }}
           >
-            {LANGUAGES.map((lang) => (
-              <option key={lang.id} value={lang.id}>
-                {lang.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-35 h-9 bg-panel-2 border-border text-text">
+              <SelectValue placeholder="Select Language" />
+            </SelectTrigger>
+            <SelectContent>
+              {LANGUAGES.map((lang) => (
+                <SelectItem key={lang.id} value={lang.id}>
+                  {lang.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <div className="h-6 w-px bg-border mx-1" />
 
@@ -418,7 +438,8 @@ export function CodeEditor() {
         <Editor
           height="100%"
           language={language}
-          defaultPath="file:///code.txt"
+          path={`file:///code.${LANGUAGE_EXTENSIONS[language] ?? 'txt'}`}
+          defaultPath="file:///code.js"
           theme={isDark ? 'code-share-dark' : 'light'}
           onMount={handleEditorMount}
           beforeMount={handleBeforeMount}
