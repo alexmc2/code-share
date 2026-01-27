@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useLayoutEffect,
+  useMemo,
 } from 'react';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -38,7 +39,7 @@ interface PointerState {
 interface DrawOp {
   id: string;
   ts: number;
-  type: 'path' | 'line' | 'rect' | 'circle' | 'erase' | 'fill';
+  type: 'path' | 'line' | 'rect' | 'circle' | 'erase' | 'fill' | 'eraseStroke';
   colour: string;
   size: number;
   points?: Point[];
@@ -60,131 +61,26 @@ const COLOURS = [
   '#000000',
 ];
 
+// Brush sizes for pen/shapes
 const SIZES = [
   { label: 'S', value: 2 },
   { label: 'M', value: 5 },
   { label: 'L', value: 10 },
 ];
 
-// Virtual canvas size - users can pan around this area
-// Larger size for better coverage, but not so large it causes memory issues
+// Eraser sizes (world-unit pixels)
+const ERASER_SIZES = [
+  { label: 'S', value: 10 },
+  { label: 'M', value: 30 },
+  { label: 'L', value: 60 },
+];
+
+// Virtual canvas size
 const CANVAS_WIDTH = 3200;
 const CANVAS_HEIGHT = 3200;
 
-function hitTest(point: Point, op: DrawOp): boolean {
-  const threshold = Math.max(5, op.size);
-
-  if (op.type === 'path') {
-    if (!op.points || op.points.length < 2) return false;
-    // Check distance to any point in path (simplified hit test)
-
-    for (const p of op.points) {
-      const dist = Math.hypot(p.x - point.x, p.y - point.y);
-      if (dist < threshold) return true;
-    }
-    return false;
-  }
-
-  if (op.type === 'line') {
-    if (
-      op.x1 === undefined ||
-      op.y1 === undefined ||
-      op.x2 === undefined ||
-      op.y2 === undefined
-    )
-      return false;
-
-    // Point to line segment distance
-    const A = point.x - op.x1;
-    const B = point.y - op.y1;
-    const C = op.x2 - op.x1;
-    const D = op.y2 - op.y1;
-
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    let param = -1;
-
-    if (lenSq !== 0) param = dot / lenSq;
-
-    let xx, yy;
-
-    if (param < 0) {
-      xx = op.x1;
-      yy = op.y1;
-    } else if (param > 1) {
-      xx = op.x2;
-      yy = op.y2;
-    } else {
-      xx = op.x1 + param * C;
-      yy = op.y1 + param * D;
-    }
-
-    const dx = point.x - xx;
-    const dy = point.y - yy;
-    return Math.hypot(dx, dy) < threshold;
-  }
-
-  if (op.type === 'rect') {
-    if (
-      op.x1 === undefined ||
-      op.y1 === undefined ||
-      op.x2 === undefined ||
-      op.y2 === undefined
-    )
-      return false;
-
-    // Check if point is near the borders of the rect
-    const x = Math.min(op.x1, op.x2);
-    const y = Math.min(op.y1, op.y2);
-    const w = Math.abs(op.x2 - op.x1);
-    const h = Math.abs(op.y2 - op.y1);
-
-    // Outer and inner bounds
-    const outerLeft = x - threshold;
-    const outerRight = x + w + threshold;
-    const outerTop = y - threshold;
-    const outerBottom = y + h + threshold;
-
-    const innerLeft = x + threshold;
-    const innerRight = x + w - threshold;
-    const innerTop = y + threshold;
-    const innerBottom = y + h - threshold;
-
-    const insideOuter =
-      point.x >= outerLeft &&
-      point.x <= outerRight &&
-      point.y >= outerTop &&
-      point.y <= outerBottom;
-    const insideInner =
-      point.x >= innerLeft &&
-      point.x <= innerRight &&
-      point.y >= innerTop &&
-      point.y <= innerBottom;
-
-    return insideOuter && !insideInner;
-  }
-
-  if (op.type === 'circle') {
-    if (
-      op.x1 === undefined ||
-      op.y1 === undefined ||
-      op.x2 === undefined ||
-      op.y2 === undefined
-    )
-      return false;
-
-    const radius = Math.hypot(op.x2 - op.x1, op.y2 - op.y1);
-    const dist = Math.hypot(point.x - op.x1, point.y - op.y1);
-
-    return Math.abs(dist - radius) < threshold;
-  }
-
-  return false;
-}
-
 /**
- * Flood fill algorithm that reads boundaries from strokeCanvas and writes to fillCanvas.
- * This prevents anti-aliasing artifacts by keeping strokes and fills on separate layers.
+ * Flood fill that keeps strokes and fills on separate layers to avoid anti-aliasing artifacts.
  */
 function floodFillWithBoundary(
   fillCtx: CanvasRenderingContext2D,
@@ -284,8 +180,7 @@ function floodFillWithBoundary(
     x2++;
   }
 
-  // CRITICAL FIX: Fill the initial span immediately
-  // Without this, the initial row has a gap (the seam line bug)
+  // Fill the initial span immediately to prevent gap in the first row
   for (let fx = x1; fx <= x2; fx++) {
     const pixelIdx = y * width + fx;
     visited[pixelIdx] = 1;
@@ -388,14 +283,14 @@ export function Whiteboard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // ============================================
-  // LAYERED OFFLINE CANVASES
-  // ============================================
-  // worldCanvas: Final composited result (fills + strokes)
-  // strokeCanvas: Intermediate layer for strokes only
-  // fillCanvas: Intermediate layer for fills only
+  // Layered canvases:
+  // 1) boundaryStroke: reference for flood fill boundaries (erased by eraser)
+  // 2) visibleStroke: visible strokes (erased by eraser)
+  // 3) fill: background + fills (erased by painting background color)
+  // 4) world: final composite
   const worldCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const strokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const boundaryStrokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const visibleStrokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const fillCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // CSS dimensions for DPR-aware rendering
@@ -453,6 +348,51 @@ export function Whiteboard() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Update size to appropriate default when switching to/from eraser
+  // This ensures the size buttons (S/M/L) match the current tool's size range
+  useEffect(() => {
+    if (tool === 'eraser') {
+      // Switch to eraser: use medium eraser size (30)
+      setSize(ERASER_SIZES[1].value);
+    } else {
+      // Switch from eraser to another tool: use medium pen size (5)
+      // Only do this if current size is an eraser size (not a pen size)
+      if (
+        ERASER_SIZES.some((s) => s.value === size) &&
+        !SIZES.some((s) => s.value === size)
+      ) {
+        setSize(SIZES[1].value);
+      }
+    }
+  }, [tool]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Generate custom round cursor for pen and eraser tools
+  // The cursor shows the brush size as a circle (scales with zoom)
+  const brushCursor = useMemo(() => {
+    // Only show round brush cursor for pen and eraser
+    if (tool !== 'eraser' && tool !== 'pen') return 'crosshair';
+
+    // Scale the cursor size based on the current zoom level
+    // But clamp it to reasonable screen sizes (min 8px, max 128px)
+    const screenSize = Math.max(
+      8,
+      Math.min(128, size * transformRef.current.scale),
+    );
+    const halfSize = screenSize / 2;
+
+    // Create an SVG circle cursor
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${screenSize}" height="${screenSize}" viewBox="0 0 ${screenSize} ${screenSize}">
+        <circle cx="${halfSize}" cy="${halfSize}" r="${halfSize - 1}" fill="none" stroke="rgba(128,128,128,0.8)" stroke-width="2"/>
+        <circle cx="${halfSize}" cy="${halfSize}" r="1" fill="rgba(128,128,128,0.8)"/>
+      </svg>
+    `.trim();
+
+    // Convert to data URL
+    const dataUrl = `data:image/svg+xml;base64,${btoa(svg)}`;
+    return `url(${dataUrl}) ${halfSize} ${halfSize}, crosshair`;
+  }, [tool, size]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
@@ -492,28 +432,25 @@ export function Whiteboard() {
   }, []);
 
   // Clamp viewport to world bounds using CSS pixels (not physical pixels).
-  const clampTransform = useCallback(
-    (x: number, y: number, scale: number) => {
-      const cssWidth = canvasCssWidthRef.current;
-      const cssHeight = canvasCssHeightRef.current;
+  const clampTransform = useCallback((x: number, y: number, scale: number) => {
+    const cssWidth = canvasCssWidthRef.current;
+    const cssHeight = canvasCssHeightRef.current;
 
-      if (cssWidth <= 0 || cssHeight <= 0) {
-        return { x: 0, y: 0, scale };
-      }
+    if (cssWidth <= 0 || cssHeight <= 0) {
+      return { x: 0, y: 0, scale };
+    }
 
-      const viewWorldW = cssWidth / scale;
-      const viewWorldH = cssHeight / scale;
-      const maxX = Math.max(0, CANVAS_WIDTH - viewWorldW);
-      const maxY = Math.max(0, CANVAS_HEIGHT - viewWorldH);
+    const viewWorldW = cssWidth / scale;
+    const viewWorldH = cssHeight / scale;
+    const maxX = Math.max(0, CANVAS_WIDTH - viewWorldW);
+    const maxY = Math.max(0, CANVAS_HEIGHT - viewWorldH);
 
-      return {
-        x: Math.max(0, Math.min(maxX, x)),
-        y: Math.max(0, Math.min(maxY, y)),
-        scale,
-      };
-    },
-    [],
-  );
+    return {
+      x: Math.max(0, Math.min(maxX, x)),
+      y: Math.max(0, Math.min(maxY, y)),
+      scale,
+    };
+  }, []);
 
   // Center viewport after initial sizing or major orientation/size changes.
   const centerViewport = useCallback(
@@ -527,7 +464,7 @@ export function Whiteboard() {
       const centeredX = (CANVAS_WIDTH - viewWorldW) / 2;
       const centeredY = (CANVAS_HEIGHT - viewWorldH) / 2;
 
-      // FIX: center using canvas CSS size, then clamp within world bounds.
+      // Center using canvas CSS size, then clamp within world bounds.
       transformRef.current = clampTransform(centeredX, centeredY, scale);
     },
     [clampTransform],
@@ -540,7 +477,7 @@ export function Whiteboard() {
 
     const prev = lastResizeSizeRef.current;
     const orientationChanged =
-      prev !== null && (prev.width > prev.height) !== (cssWidth > cssHeight);
+      prev !== null && prev.width > prev.height !== cssWidth > cssHeight;
     const sizeChangeLarge =
       prev !== null &&
       (Math.abs(cssWidth - prev.width) > prev.width * 0.15 ||
@@ -552,10 +489,10 @@ export function Whiteboard() {
         !hasUserViewportChangeRef.current);
 
     if (shouldRecenter) {
-      // FIX: initial camera placement + sensible recenter on big resize.
+      // Initial camera placement + sensible recenter on big resize.
       centerViewport();
     } else {
-      // FIX: keep current view but clamp using CSS size on resize.
+      // Keep current view but clamp using CSS size on resize.
       transformRef.current = clampTransform(
         transformRef.current.x,
         transformRef.current.y,
@@ -574,10 +511,15 @@ export function Whiteboard() {
       worldCanvasRef.current.width = CANVAS_WIDTH;
       worldCanvasRef.current.height = CANVAS_HEIGHT;
     }
-    if (!strokeCanvasRef.current) {
-      strokeCanvasRef.current = document.createElement('canvas');
-      strokeCanvasRef.current.width = CANVAS_WIDTH;
-      strokeCanvasRef.current.height = CANVAS_HEIGHT;
+    if (!boundaryStrokeCanvasRef.current) {
+      boundaryStrokeCanvasRef.current = document.createElement('canvas');
+      boundaryStrokeCanvasRef.current.width = CANVAS_WIDTH;
+      boundaryStrokeCanvasRef.current.height = CANVAS_HEIGHT;
+    }
+    if (!visibleStrokeCanvasRef.current) {
+      visibleStrokeCanvasRef.current = document.createElement('canvas');
+      visibleStrokeCanvasRef.current.width = CANVAS_WIDTH;
+      visibleStrokeCanvasRef.current.height = CANVAS_HEIGHT;
     }
     if (!fillCanvasRef.current) {
       fillCanvasRef.current = document.createElement('canvas');
@@ -655,55 +597,96 @@ export function Whiteboard() {
     [],
   );
 
-  // ============================================
-  // REBUILD WORLD CANVAS
-  // ============================================
-  // This is the HEAVY operation - only runs when opsArray changes
-  // Uses INCREMENTAL TIMELINE REPLAY to prevent "time travel" fills:
-  // - Each fill operation sees only the strokes that came BEFORE it in the ops array
-  // - This ensures later strokes don't retroactively change earlier fill results
-  // - Y.Array order is the authoritative timeline (not timestamp-based sorting)
+  // Helper to draw an eraseStroke op with destination-out compositing
+  const drawEraseStrokePath = useCallback(
+    (ctx: CanvasRenderingContext2D, op: DrawOp) => {
+      if (!op.points || op.points.length < 1) return;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = op.size;
+      ctx.strokeStyle = 'rgba(0,0,0,1)'; // Color doesn't matter for destination-out
+
+      ctx.beginPath();
+      ctx.moveTo(op.points[0].x, op.points[0].y);
+      for (let i = 1; i < op.points.length; i++) {
+        ctx.lineTo(op.points[i].x, op.points[i].y);
+      }
+      ctx.stroke();
+
+      ctx.restore(); // Restores globalCompositeOperation to previous value
+    },
+    [],
+  );
+
+  // For fillCanvas, we paint the background color to "erase" since it's opaque.
+  const drawEraseStrokeOnFill = useCallback(
+    (ctx: CanvasRenderingContext2D, op: DrawOp, backgroundColor: string) => {
+      if (!op.points || op.points.length < 1) return;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over'; // Normal drawing
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = op.size;
+      ctx.strokeStyle = backgroundColor; // Paint background color to "erase"
+
+      ctx.beginPath();
+      ctx.moveTo(op.points[0].x, op.points[0].y);
+      for (let i = 1; i < op.points.length; i++) {
+        ctx.lineTo(op.points[i].x, op.points[i].y);
+      }
+      ctx.stroke();
+
+      ctx.restore();
+    },
+    [],
+  );
+
+  // Rebuilds the world canvas by replaying all operations in order.
   const rebuildWorldCanvas = useCallback(() => {
     initOffscreenCanvases();
 
     const worldCanvas = worldCanvasRef.current;
-    const strokeCanvas = strokeCanvasRef.current;
+    const boundaryStrokeCanvas = boundaryStrokeCanvasRef.current;
+    const visibleStrokeCanvas = visibleStrokeCanvasRef.current;
     const fillCanvas = fillCanvasRef.current;
 
-    if (!worldCanvas || !strokeCanvas || !fillCanvas) return;
+    if (
+      !worldCanvas ||
+      !boundaryStrokeCanvas ||
+      !visibleStrokeCanvas ||
+      !fillCanvas
+    )
+      return;
 
     const worldCtx = worldCanvas.getContext('2d');
-    const strokeCtx = strokeCanvas.getContext('2d');
+    const boundaryStrokeCtx = boundaryStrokeCanvas.getContext('2d');
+    const visibleStrokeCtx = visibleStrokeCanvas.getContext('2d');
     const fillCtx = fillCanvas.getContext('2d');
 
-    if (!worldCtx || !strokeCtx || !fillCtx) return;
+    if (!worldCtx || !boundaryStrokeCtx || !visibleStrokeCtx || !fillCtx)
+      return;
 
-    // ============================================
-    // CLEAR CANVASES
-    // ============================================
-    // strokeCanvas: transparent (strokes only)
-    strokeCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    // Clear canvases
+    boundaryStrokeCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // visibleStrokeCanvas: transparent (visible strokes after erasing)
+    visibleStrokeCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // fillCanvas: Use theme background color (solid base for flood fill)
-    // Solid opaque background eliminates interpolation artifacts (seam lines)
     fillCtx.fillStyle = getBackgroundColor();
     fillCtx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // ============================================
-    // INCREMENTAL TIMELINE REPLAY
-    // ============================================
-    // Iterate ops in Y.Array order (authoritative timeline).
-    // For each op:
-    // - If erase: add eraseIds to deletedIds set
-    // - If stroke (and not deleted): draw to strokeCanvas immediately
-    // - If fill (and not deleted): run flood fill on fillCanvas using CURRENT
-    //   strokeCanvas state (only strokes drawn so far, not future strokes)
+    // Replay ops in order
 
     const deletedIds = new Set<string>();
     const ops = opsArray.toArray();
 
     for (const op of ops) {
-      // Handle erase ops: add eraseIds to deleted set
+      // Handle legacy erase ops: add eraseIds to deleted set
       if (op.type === 'erase' && op.eraseIds) {
         for (const id of op.eraseIds) {
           deletedIds.add(id);
@@ -714,11 +697,15 @@ export function Whiteboard() {
       // Skip deleted ops
       if (deletedIds.has(op.id)) continue;
 
-      if (op.type === 'fill') {
-        // CRITICAL: Read CURRENT strokeCanvas state (strokes drawn so far)
-        // This ensures the fill only sees strokes that occurred BEFORE it
+      if (op.type === 'eraseStroke') {
+        const bgColor = getBackgroundColor();
+        drawEraseStrokePath(boundaryStrokeCtx, op);
+        drawEraseStrokePath(visibleStrokeCtx, op);
+        drawEraseStrokeOnFill(fillCtx, op, bgColor);
+      } else if (op.type === 'fill') {
+        // Read CURRENT boundaryStrokeCanvas state ensuring fill only sees strokes before it
         if (op.x1 !== undefined && op.y1 !== undefined) {
-          const currentStrokeData = strokeCtx.getImageData(
+          const currentStrokeData = boundaryStrokeCtx.getImageData(
             0,
             0,
             CANVAS_WIDTH,
@@ -733,33 +720,32 @@ export function Whiteboard() {
           );
         }
       } else {
-        // Draw stroke to strokeCanvas immediately
-        // This stroke will be visible to subsequent fill operations
-        drawStrokeOp(strokeCtx, op);
+        // Draw stroke to both stroke canvases
+        // - boundaryStroke: visible to subsequent fills
+        // - visibleStroke: visible to user
+        drawStrokeOp(boundaryStrokeCtx, op);
+        drawStrokeOp(visibleStrokeCtx, op);
       }
     }
 
-    // ============================================
-    // COMPOSITE TO WORLD CANVAS
-    // ============================================
-    // Keep worldCanvas transparent - theme background is applied in renderViewport
-    // This is critical for collaboration: world state is theme-independent
+    // Composite to world canvas (transparent background)
     worldCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Order: fillCanvas (bottom) -> strokeCanvas (top)
-    // This ensures strokes render ON TOP of fills, hiding anti-aliasing artifacts
+    // Order: fillCanvas (bottom) -> visibleStrokeCanvas (top)
     worldCtx.drawImage(fillCanvas, 0, 0);
-    worldCtx.drawImage(strokeCanvas, 0, 0);
+    worldCtx.drawImage(visibleStrokeCanvas, 0, 0);
 
     worldNeedsRebuildRef.current = false;
-  }, [opsArray, drawStrokeOp, initOffscreenCanvases, getBackgroundColor]);
+  }, [
+    opsArray,
+    drawStrokeOp,
+    drawEraseStrokePath,
+    drawEraseStrokeOnFill,
+    initOffscreenCanvases,
+    getBackgroundColor,
+  ]);
 
-  // ============================================
-  // RENDER VIEWPORT
-  // ============================================
-  // This is the LIGHT operation - runs on every frame, pan, zoom
-  // Simply copies the pre-rendered world canvas to the screen
-  // Works in PHYSICAL PIXELS directly to prevent seam line artifacts
+  // Renders the viewport efficiently using physical pixels to prevent seams
   const renderViewport = useCallback(() => {
     const ctx = getContext();
     const canvas = canvasRef.current;
@@ -772,9 +758,6 @@ export function Whiteboard() {
     const physHeight = canvas.height;
     const dpr = window.devicePixelRatio || 1;
 
-    // ============================================
-    // RESET CONTEXT STATE
-    // ============================================
     // Reset to identity transform - we work in physical pixels
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
@@ -786,15 +769,11 @@ export function Whiteboard() {
     // Clear canvas (background already in worldCanvas)
     ctx.clearRect(0, 0, physWidth, physHeight);
 
-    // ============================================
-    // CALCULATE SOURCE RECTANGLE
-    // ============================================
-    // Source coordinates in world space (integer to prevent subpixel sampling)
+    // Source coordinates in world space
     const srcX = Math.floor(Math.max(0, transformRef.current.x));
     const srcY = Math.floor(Math.max(0, transformRef.current.y));
 
     // Calculate how much of the world we're viewing
-    // CSS dimensions = physical / dpr, then divided by zoom scale
     const cssWidth = physWidth / dpr;
     const cssHeight = physHeight / dpr;
     const viewWorldW = cssWidth / transformRef.current.scale;
@@ -804,11 +783,7 @@ export function Whiteboard() {
     const srcW = Math.min(viewWorldW, CANVAS_WIDTH - srcX);
     const srcH = Math.min(viewWorldH, CANVAS_HEIGHT - srcY);
 
-    // ============================================
-    // DRAW WORLD CANVAS ON TOP
-    // ============================================
-    // worldCanvas contains fills (white base + colors) and strokes
-    // Draw it normally - the white base will show through for unfilled areas
+    // Draw world canvas on top
     if (srcW > 0 && srcH > 0) {
       ctx.drawImage(
         worldCanvas,
@@ -823,10 +798,7 @@ export function Whiteboard() {
       );
     }
 
-    // ============================================
-    // DRAW CURRENT OPERATION PREVIEW
-    // ============================================
-    // (for strokes only, fills are instant)
+    // Draw current operation preview
     if (
       currentOp.current &&
       currentOp.current.type !== 'erase' &&
@@ -834,19 +806,43 @@ export function Whiteboard() {
     ) {
       ctx.save();
 
-      // Scale from world coords to physical pixels
-      // Combined transform: world -> CSS -> physical
+      // Scale world coords to physical pixels
       const worldToPhys = dpr * transformRef.current.scale;
       ctx.scale(worldToPhys, worldToPhys);
       ctx.translate(-transformRef.current.x, -transformRef.current.y);
 
-      drawStrokeOp(ctx, currentOp.current);
+      if (currentOp.current.type === 'eraseStroke') {
+        // Preview eraseStroke
+        if (currentOp.current.points && currentOp.current.points.length > 0) {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = currentOp.current.size;
+          // Paint the background color to show erased effect
+          ctx.strokeStyle = getBackgroundColor();
+
+          ctx.beginPath();
+          ctx.moveTo(
+            currentOp.current.points[0].x,
+            currentOp.current.points[0].y,
+          );
+          for (let i = 1; i < currentOp.current.points.length; i++) {
+            ctx.lineTo(
+              currentOp.current.points[i].x,
+              currentOp.current.points[i].y,
+            );
+          }
+          ctx.stroke();
+        }
+      } else {
+        drawStrokeOp(ctx, currentOp.current);
+      }
 
       ctx.restore();
     }
-  }, [getContext, drawStrokeOp]);
+  }, [getContext, drawStrokeOp, getBackgroundColor]);
 
-  // Schedule viewport render with requestAnimationFrame
+  // Schedule viewport render
   const rafIdRef = useRef<number | null>(null);
   const scheduleViewportRender = useCallback(() => {
     if (rafIdRef.current !== null) {
@@ -858,28 +854,21 @@ export function Whiteboard() {
     });
   }, [renderViewport]);
 
-  // ============================================
-  // EFFECTS
-  // ============================================
-
-  // Effect 1: Rebuild world canvas on data changes (opsArray)
+  // Rebuild world canvas on data changes
   useEffect(() => {
     worldNeedsRebuildRef.current = true;
     rebuildWorldCanvas();
     scheduleViewportRender();
   }, [opsArray, rebuildWorldCanvas, scheduleViewportRender]);
 
-  // Effect 2: Re-render viewport on theme change only
-  // (Pan/zoom now handled via direct ref manipulation + scheduleViewportRender calls)
-
-  // Effect 3: Re-render on theme change (need to rebuild world canvas)
+  // Re-render on theme change
   useEffect(() => {
     worldNeedsRebuildRef.current = true;
     rebuildWorldCanvas();
     scheduleViewportRender();
   }, [isDark, rebuildWorldCanvas, scheduleViewportRender]);
 
-  // Effect 4: Handle resize - use ResizeObserver for container resizes
+  // Handle resize
   useLayoutEffect(() => {
     resizeCanvas();
     updateViewportForResize();
@@ -988,7 +977,7 @@ export function Whiteboard() {
       startPoint.current = pos;
 
       if (tool === 'fill') {
-        // Fill is an instant operation - execute immediately on click
+        // Fill operation
         const fillOp: DrawOp = {
           id: nanoid(8),
           ts: Date.now(),
@@ -1007,13 +996,14 @@ export function Whiteboard() {
         // World canvas will be rebuilt by the opsArray observer
         return;
       } else if (tool === 'eraser') {
+        // Brush eraser
         currentOp.current = {
           id: nanoid(8),
           ts: Date.now(),
-          type: 'erase',
+          type: 'eraseStroke',
           colour: '',
-          size: 0,
-          eraseIds: [],
+          size,
+          points: [pos],
         };
       } else if (tool === 'pen') {
         currentOp.current = {
@@ -1052,19 +1042,9 @@ export function Whiteboard() {
 
       if (tool === 'pen' && currentOp.current.points) {
         currentOp.current.points.push(pos);
-      } else if (tool === 'eraser') {
-        // Find items intersecting with eraser
-        const ops = opsArray.toArray();
-        const existingErased = new Set(currentOp.current.eraseIds || []);
-
-        for (const op of ops) {
-          if (op.type !== 'erase' && !existingErased.has(op.id)) {
-            if (hitTest(pos, op)) {
-              if (!currentOp.current.eraseIds) currentOp.current.eraseIds = [];
-              currentOp.current.eraseIds.push(op.id);
-            }
-          }
-        }
+      } else if (tool === 'eraser' && currentOp.current.points) {
+        // Brush eraser
+        currentOp.current.points.push(pos);
       } else {
         currentOp.current.x2 = pos.x;
         currentOp.current.y2 = pos.y;
@@ -1072,7 +1052,7 @@ export function Whiteboard() {
 
       scheduleViewportRender();
     },
-    [tool, getPosition, scheduleViewportRender, opsArray],
+    [tool, getPosition, scheduleViewportRender],
   );
 
   // End drawing
@@ -1081,26 +1061,21 @@ export function Whiteboard() {
 
     isDrawing.current = false;
 
-    // For pen, at least 2 points
+    // For pen or eraser, at least 2 points (duplicate first if only 1)
     if (
-      tool === 'pen' &&
+      (tool === 'pen' || tool === 'eraser') &&
       currentOp.current.points &&
       currentOp.current.points.length < 2
     ) {
       currentOp.current.points.push({ ...currentOp.current.points[0] });
     }
 
-    // For eraser, or other tools, add to opsArray
-    if (
-      tool !== 'eraser' ||
-      (currentOp.current.eraseIds && currentOp.current.eraseIds.length > 0)
-    ) {
-      opsArray.push([currentOp.current]);
-      undoStack.current.push(currentOp.current);
-      redoStack.current = [];
-      setCanUndo(true);
-      setCanRedo(false);
-    }
+    // Always push to opsArray (eraseStroke always has points)
+    opsArray.push([currentOp.current]);
+    undoStack.current.push(currentOp.current);
+    redoStack.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
 
     currentOp.current = null;
     // World canvas will be rebuilt by the opsArray observer
@@ -1124,7 +1099,7 @@ export function Whiteboard() {
 
         const touchPoints = getActiveTouchPoints();
         if (touchPoints.length >= 2) {
-          // FIX: enter pan/zoom mode on multi-touch, never draw.
+          // Pan/zoom
           isPanning.current = true;
           isDrawing.current = false;
           currentOp.current = null;
@@ -1194,7 +1169,7 @@ export function Whiteboard() {
                 y: localCenter.y / nextScale + nextY,
               };
 
-              // FIX: centroid-locked zoom for top-left world origin.
+              // Zoom top-left world origin
               nextScale = newScale;
               nextX = worldPoint.x - localCenter.x / newScale;
               nextY = worldPoint.y - localCenter.y / newScale;
@@ -1208,11 +1183,11 @@ export function Whiteboard() {
           const deltaCy = localCenter.y - lastPanPoint.current.y;
           lastPanPoint.current = localCenter;
 
-          // FIX: pan in world units using CSS pixel deltas.
+          // Pan world units
           nextX -= deltaCx / nextScale;
           nextY -= deltaCy / nextScale;
 
-          // FIX: clamp using CSS size (avoids DPR "stuck" pan).
+          // Clamp CSS size
           transformRef.current = clampTransform(nextX, nextY, nextScale);
           hasUserViewportChangeRef.current = true;
 
@@ -1258,7 +1233,7 @@ export function Whiteboard() {
         }
 
         if (touchPoints.length === 1 && isPanning.current && canvas) {
-          // Keep panning with the remaining finger (no accidental draw).
+          // Continue panning with remaining finger
           const rect = canvas.getBoundingClientRect();
           const centroid = getTouchCentroid(touchPoints);
           lastPanPoint.current = {
@@ -1305,7 +1280,7 @@ export function Whiteboard() {
     setIsClearDialogOpen(false);
   }, [doc, opsArray]);
 
-  // Undo (local operation only - removes last op we added)
+  // Undo last local op
   const handleUndo = useCallback(() => {
     if (undoStack.current.length === 0) return;
 
@@ -1478,9 +1453,9 @@ export function Whiteboard() {
           ))}
         </div>
 
-        {/* Sizes */}
+        {/* Sizes - use different sizes for eraser vs other tools */}
         <div className="flex gap-1 items-center pr-3 border-r border-border">
-          {SIZES.map((s) => (
+          {(tool === 'eraser' ? ERASER_SIZES : SIZES).map((s) => (
             <button
               key={s.label}
               className={`px-2 py-1 text-xs font-semibold rounded transition-all
@@ -1574,7 +1549,8 @@ export function Whiteboard() {
       >
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
+          className="absolute inset-0 w-full h-full touch-none"
+          style={{ cursor: brushCursor }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
