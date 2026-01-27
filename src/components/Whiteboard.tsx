@@ -702,6 +702,41 @@ export function Whiteboard() {
     setCanRedo(redoStack.current.length > 0);
   }, [opsArray]);
 
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if the event target is an input element (to not interfere with text input)
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Ctrl+Z or Cmd+Z for undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      // Ctrl+Y or Cmd+Y for redo (Windows style)
+      // Ctrl+Shift+Z or Cmd+Shift+Z for redo (Mac style)
+      else if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === 'y' ||
+          (e.key === 'z' && e.shiftKey) ||
+          (e.key === 'Z' && e.shiftKey))
+      ) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
   const toolButtonClass = (isActive: boolean) =>
     `w-9 h-9 rounded-md flex items-center justify-center text-base transition-all
      ${
@@ -761,7 +796,7 @@ export function Whiteboard() {
               <button
                 title="Pan hint"
                 className="w-7 h-7 ml-auto flex items-center justify-center rounded-full
-                  bg-panel-2 border border-border text-primary text-base font-semibold
+                  bg-panel-2 border border-border text-text/80 text-base font-bold font-mono
                   hover:bg-border/50 transition-colors"
               >
                 i
