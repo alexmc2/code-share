@@ -722,6 +722,32 @@ export function Whiteboard() {
           </button>
         </div>
 
+        {/* Mobile pan hint - justified to far right on first row */}
+        {isMobile && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                title="Pan hint"
+                className="w-7 h-7 ml-auto flex items-center justify-center rounded-full
+                  bg-panel-2 border border-border text-primary text-base font-semibold
+                  hover:bg-border/50 transition-colors"
+              >
+                i
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="bottom"
+              align="end"
+              className="w-auto max-w-50 p-3 text-sm"
+            >
+              <p className="text-text-muted">
+                Use <span className="font-semibold text-text">two fingers</span>{' '}
+                to pan/scroll around the whiteboard.
+              </p>
+            </PopoverContent>
+          </Popover>
+        )}
+
         {/* Colours */}
         <div className="flex gap-1 items-center pr-3 border-r border-border">
           {COLOURS.map((c) => (
@@ -827,33 +853,6 @@ export function Whiteboard() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-
-          {/* Mobile pan hint */}
-          {isMobile && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  title="Pan hint"
-                  className="w-6 h-6 ml-auto flex items-center justify-center rounded-full
-                    bg-primary/20 text-primary text-xs font-semibold
-                    hover:bg-primary/30 transition-colors"
-                >
-                  i
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="bottom"
-                align="end"
-                className="w-auto max-w-50 p-3 text-sm"
-              >
-                <p className="text-text-muted">
-                  Use{' '}
-                  <span className="font-semibold text-text">two fingers</span>{' '}
-                  to pan/scroll around the whiteboard.
-                </p>
-              </PopoverContent>
-            </Popover>
-          )}
         </div>
       </div>
 
