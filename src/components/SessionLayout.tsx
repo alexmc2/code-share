@@ -37,6 +37,7 @@ const MIN_MAIN_WIDTH = 450;
 const MAX_SIDEBAR_RATIO = 0.7;
 const DEFAULT_SIDEBAR_WIDTH = 320;
 const STORAGE_KEY = 'sidebarWidth';
+const ACTIVE_TAB_STORAGE_KEY = 'activeTab';
 
 interface SessionLayoutProps {
   status: ConnectionStatus;
@@ -47,7 +48,13 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
   const { participants, isHost, connectionType, leaveSession } = useSession();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<Tab>('code');
+
+  // Active tab state with localStorage persistence
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    if (typeof window === 'undefined') return 'code';
+    const stored = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+    return stored === 'code' || stored === 'diagram' ? stored : 'code';
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -147,6 +154,11 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // Persist active tab to localStorage
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
 
   const statusConfig = {
     disconnected: { text: 'Disconnected', dotClass: 'bg-danger' },
@@ -407,7 +419,12 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
             className="flex-1 overflow-hidden flex min-w-0"
             style={{ minWidth: isMobile ? 0 : MIN_MAIN_WIDTH }}
           >
-            {activeTab === 'code' ? <CodeEditor /> : <Whiteboard />}
+            <div className={activeTab === 'code' ? 'flex-1 flex' : 'hidden'}>
+              <CodeEditor />
+            </div>
+            <div className={activeTab === 'diagram' ? 'flex-1 flex' : 'hidden'}>
+              <Whiteboard />
+            </div>
           </div>
 
           {/* Desktop/Tablet Sidebar - hidden on mobile */}

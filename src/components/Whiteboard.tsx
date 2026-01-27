@@ -61,8 +61,9 @@ const SIZES = [
 ];
 
 // Virtual canvas size - users can pan around this area
-const CANVAS_WIDTH = 2000;
-const CANVAS_HEIGHT = 2000;
+// Larger size for better coverage, but not so large it causes memory issues
+const CANVAS_WIDTH = 3200;
+const CANVAS_HEIGHT = 3200;
 
 function hitTest(point: Point, op: DrawOp): boolean {
   const threshold = Math.max(5, op.size);
@@ -175,17 +176,19 @@ function hitTest(point: Point, op: DrawOp): boolean {
   return false;
 }
 
-// Optimized flood fill using scanline algorithm with span-based filling
-// Much faster than per-pixel approach for large areas
-function floodFill(
-  ctx: CanvasRenderingContext2D,
+/**
+ * Flood fill algorithm that reads boundaries from strokeCanvas and writes to fillCanvas.
+ * This prevents anti-aliasing artifacts by keeping strokes and fills on separate layers.
+ */
+function floodFillWithBoundary(
+  fillCtx: CanvasRenderingContext2D,
+  strokeImageData: ImageData,
   startX: number,
   startY: number,
   fillColor: string,
 ): void {
-  const canvas = ctx.canvas;
-  const width = canvas.width;
-  const height = canvas.height;
+  const width = fillCtx.canvas.width;
+  const height = fillCtx.canvas.height;
 
   // Clamp start position to canvas bounds
   const x = Math.floor(Math.max(0, Math.min(width - 1, startX)));
@@ -200,16 +203,24 @@ function floodFill(
   tempCtx.fillRect(0, 0, 1, 1);
   const fillRGBA = tempCtx.getImageData(0, 0, 1, 1).data;
 
-  // Get image data
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
+  // Get fill canvas image data
+  const fillImageData = fillCtx.getImageData(0, 0, width, height);
+  const fillData = fillImageData.data;
+  const strokeData = strokeImageData.data;
 
-  // Get target color at start position
-  const startIdx = (y * width + x) * 4;
-  const targetR = data[startIdx];
-  const targetG = data[startIdx + 1];
-  const targetB = data[startIdx + 2];
-  const targetA = data[startIdx + 3];
+  // Check if start position has a stroke boundary
+  const startStrokeIdx = (y * width + x) * 4;
+  if (strokeData[startStrokeIdx + 3] > 30) {
+    // Clicked on a stroke, don't fill
+    return;
+  }
+
+  // Get target color at start position from fill canvas
+  const startFillIdx = (y * width + x) * 4;
+  const targetR = fillData[startFillIdx];
+  const targetG = fillData[startFillIdx + 1];
+  const targetB = fillData[startFillIdx + 2];
+  const targetA = fillData[startFillIdx + 3];
 
   // Don't fill if clicking on the same color
   if (
@@ -221,28 +232,63 @@ function floodFill(
     return;
   }
 
-  // Color matching with tolerance (helps with anti-aliasing)
+  // Tolerance for matching target color
   const tolerance = 32;
+
+  // Match target color on fill canvas (what we're replacing)
   const matchesTarget = (idx: number): boolean => {
     return (
-      Math.abs(data[idx] - targetR) <= tolerance &&
-      Math.abs(data[idx + 1] - targetG) <= tolerance &&
-      Math.abs(data[idx + 2] - targetB) <= tolerance &&
-      Math.abs(data[idx + 3] - targetA) <= tolerance
+      Math.abs(fillData[idx] - targetR) <= tolerance &&
+      Math.abs(fillData[idx + 1] - targetG) <= tolerance &&
+      Math.abs(fillData[idx + 2] - targetB) <= tolerance &&
+      Math.abs(fillData[idx + 3] - targetA) <= tolerance
     );
   };
 
-  // Use Uint8Array for fast visited tracking (much faster than Set)
+  // Check if pixel is a stroke boundary (from strokeCanvas)
+  const isBoundary = (pixelIdx: number): boolean => {
+    const idx = pixelIdx * 4;
+    // If stroke has significant alpha, it's a boundary
+    return strokeData[idx + 3] > 30;
+  };
+
+  // Use Uint8Array for fast visited tracking
   const visited = new Uint8Array(width * height);
 
   // Scanline fill using spans
   const stack: [number, number, number, number][] = []; // [x1, x2, y, direction]
 
+  // Check if starting point is valid
+  const startPixelIdx = y * width + x;
+  if (isBoundary(startPixelIdx) || !matchesTarget(startPixelIdx * 4)) {
+    return;
+  }
+
   // Find initial span
   let x1 = x;
   let x2 = x;
-  while (x1 > 0 && matchesTarget((y * width + x1 - 1) * 4)) x1--;
-  while (x2 < width - 1 && matchesTarget((y * width + x2 + 1) * 4)) x2++;
+  while (x1 > 0) {
+    const leftIdx = y * width + x1 - 1;
+    if (isBoundary(leftIdx) || !matchesTarget(leftIdx * 4)) break;
+    x1--;
+  }
+  while (x2 < width - 1) {
+    const rightIdx = y * width + x2 + 1;
+    if (isBoundary(rightIdx) || !matchesTarget(rightIdx * 4)) break;
+    x2++;
+  }
+
+  // CRITICAL FIX: Fill the initial span immediately
+  // Without this, the initial row has a gap (the seam line bug)
+  for (let fx = x1; fx <= x2; fx++) {
+    const pixelIdx = y * width + fx;
+    visited[pixelIdx] = 1;
+    const di = pixelIdx * 4;
+    fillData[di] = fillRGBA[0];
+    fillData[di + 1] = fillRGBA[1];
+    fillData[di + 2] = fillRGBA[2];
+    fillData[di + 3] = fillRGBA[3];
+  }
 
   stack.push([x1, x2, y, 1]); // down
   stack.push([x1, x2, y, -1]); // up
@@ -258,8 +304,12 @@ function floodFill(
       const pixelIdx = ny * width + cx;
       const dataIdx = pixelIdx * 4;
 
-      // Skip if already visited or doesn't match
-      if (visited[pixelIdx] || !matchesTarget(dataIdx)) {
+      // Skip if already visited, is a boundary, or doesn't match
+      if (
+        visited[pixelIdx] ||
+        isBoundary(pixelIdx) ||
+        !matchesTarget(dataIdx)
+      ) {
         cx++;
         continue;
       }
@@ -271,22 +321,32 @@ function floodFill(
       // Extend left
       while (spanX1 > 0) {
         const leftIdx = ny * width + spanX1 - 1;
-        if (visited[leftIdx] || !matchesTarget(leftIdx * 4)) break;
+        if (
+          visited[leftIdx] ||
+          isBoundary(leftIdx) ||
+          !matchesTarget(leftIdx * 4)
+        )
+          break;
         spanX1--;
       }
 
       // Extend right and fill
       while (spanX2 < width) {
         const rightIdx = ny * width + spanX2;
-        if (visited[rightIdx] || !matchesTarget(rightIdx * 4)) break;
+        if (
+          visited[rightIdx] ||
+          isBoundary(rightIdx) ||
+          !matchesTarget(rightIdx * 4)
+        )
+          break;
 
         // Fill this pixel
         visited[rightIdx] = 1;
         const di = rightIdx * 4;
-        data[di] = fillRGBA[0];
-        data[di + 1] = fillRGBA[1];
-        data[di + 2] = fillRGBA[2];
-        data[di + 3] = fillRGBA[3];
+        fillData[di] = fillRGBA[0];
+        fillData[di + 1] = fillRGBA[1];
+        fillData[di + 2] = fillRGBA[2];
+        fillData[di + 3] = fillRGBA[3];
 
         spanX2++;
       }
@@ -297,10 +357,10 @@ function floodFill(
         const fillIdx = ny * width + fx;
         visited[fillIdx] = 1;
         const di = fillIdx * 4;
-        data[di] = fillRGBA[0];
-        data[di + 1] = fillRGBA[1];
-        data[di + 2] = fillRGBA[2];
-        data[di + 3] = fillRGBA[3];
+        fillData[di] = fillRGBA[0];
+        fillData[di + 1] = fillRGBA[1];
+        fillData[di + 2] = fillRGBA[2];
+        fillData[di + 3] = fillRGBA[3];
       }
 
       // Add spans for next rows
@@ -313,7 +373,7 @@ function floodFill(
     }
   }
 
-  ctx.putImageData(imageData, 0, 0);
+  fillCtx.putImageData(fillImageData, 0, 0);
 }
 
 export function Whiteboard() {
@@ -322,9 +382,22 @@ export function Whiteboard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Offscreen canvas for consistent world-space rendering
-  // This ensures flood fill works identically on all devices
-  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // ============================================
+  // LAYERED OFFLINE CANVASES
+  // ============================================
+  // worldCanvas: Final composited result (fills + strokes)
+  // strokeCanvas: Intermediate layer for strokes only
+  // fillCanvas: Intermediate layer for fills only
+  const worldCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const strokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fillCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // CSS dimensions for DPR-aware rendering
+  const canvasCssWidthRef = useRef<number>(0);
+  const canvasCssHeightRef = useRef<number>(0);
+
+  // Track if world canvas needs rebuild
+  const worldNeedsRebuildRef = useRef(true);
 
   // Tool state
   const [tool, setTool] = useState<Tool>('pen');
@@ -335,7 +408,6 @@ export function Whiteboard() {
   const isDrawing = useRef(false);
   const currentOp = useRef<DrawOp | null>(null);
   const startPoint = useRef<Point>({ x: 0, y: 0 });
-  const lastRenderTime = useRef(0);
 
   // Get Y.Array for drawing ops
   const opsArray = doc.getArray<DrawOp>('whiteboard');
@@ -347,7 +419,11 @@ export function Whiteboard() {
   const redoStack = useRef<DrawOp[]>([]);
 
   // Viewport state for pan/scroll (mobile two-finger gesture)
-  const [viewportOffset, setViewportOffset] = useState<Point>({ x: 0, y: 0 });
+  // Center the initial viewport
+  const [viewportOffset, setViewportOffset] = useState<Point>(() => ({
+    x: (CANVAS_WIDTH - window.innerWidth) / 2,
+    y: (CANVAS_HEIGHT - window.innerHeight) / 2,
+  }));
   const isPanning = useRef(false);
   const lastPanPoint = useRef<Point>({ x: 0, y: 0 });
   const touchCount = useRef(0);
@@ -376,225 +452,380 @@ export function Whiteboard() {
     return canvas.getContext('2d');
   }, []);
 
-  // Resize canvas to match container
+  // Get background color based on theme
+  const getBackgroundColor = useCallback(() => {
+    return isDark ? '#111827' : '#ffffff';
+  }, [isDark]);
+
+  // Resize canvas to match container with proper DPR handling
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
     const rect = container.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Set backing store size (physical pixels)
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+
+    // Store CSS dimensions for renderViewport
+    canvasCssWidthRef.current = rect.width;
+    canvasCssHeightRef.current = rect.height;
   }, []);
 
-  // Draw a single operation
-  const drawOp = useCallback((ctx: CanvasRenderingContext2D, op: DrawOp) => {
-    ctx.strokeStyle = op.colour;
-    ctx.fillStyle = op.colour;
-    ctx.lineWidth = op.size;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+  // Initialize offscreen canvases
+  const initOffscreenCanvases = useCallback(() => {
+    if (!worldCanvasRef.current) {
+      worldCanvasRef.current = document.createElement('canvas');
+      worldCanvasRef.current.width = CANVAS_WIDTH;
+      worldCanvasRef.current.height = CANVAS_HEIGHT;
+    }
+    if (!strokeCanvasRef.current) {
+      strokeCanvasRef.current = document.createElement('canvas');
+      strokeCanvasRef.current.width = CANVAS_WIDTH;
+      strokeCanvasRef.current.height = CANVAS_HEIGHT;
+    }
+    if (!fillCanvasRef.current) {
+      fillCanvasRef.current = document.createElement('canvas');
+      fillCanvasRef.current.width = CANVAS_WIDTH;
+      fillCanvasRef.current.height = CANVAS_HEIGHT;
+    }
+  }, []);
 
-    switch (op.type) {
-      // Note: 'fill' operations are handled separately via floodFill in render()
+  // Draw a single stroke operation (not fill)
+  const drawStrokeOp = useCallback(
+    (ctx: CanvasRenderingContext2D, op: DrawOp) => {
+      ctx.strokeStyle = op.colour;
+      ctx.fillStyle = op.colour;
+      ctx.lineWidth = op.size;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-      case 'path':
-        if (!op.points || op.points.length < 2) break;
-        ctx.beginPath();
-        ctx.moveTo(op.points[0].x, op.points[0].y);
-        for (let i = 1; i < op.points.length; i++) {
-          ctx.lineTo(op.points[i].x, op.points[i].y);
+      switch (op.type) {
+        case 'path':
+          if (!op.points || op.points.length < 2) break;
+          ctx.beginPath();
+          ctx.moveTo(op.points[0].x, op.points[0].y);
+          for (let i = 1; i < op.points.length; i++) {
+            ctx.lineTo(op.points[i].x, op.points[i].y);
+          }
+          ctx.stroke();
+          break;
+
+        case 'line':
+          if (
+            op.x1 === undefined ||
+            op.y1 === undefined ||
+            op.x2 === undefined ||
+            op.y2 === undefined
+          )
+            break;
+          ctx.beginPath();
+          ctx.moveTo(op.x1, op.y1);
+          ctx.lineTo(op.x2, op.y2);
+          ctx.stroke();
+          break;
+
+        case 'rect':
+          if (
+            op.x1 === undefined ||
+            op.y1 === undefined ||
+            op.x2 === undefined ||
+            op.y2 === undefined
+          )
+            break;
+          ctx.strokeRect(
+            Math.min(op.x1, op.x2),
+            Math.min(op.y1, op.y2),
+            Math.abs(op.x2 - op.x1),
+            Math.abs(op.y2 - op.y1),
+          );
+          break;
+
+        case 'circle': {
+          if (
+            op.x1 === undefined ||
+            op.y1 === undefined ||
+            op.x2 === undefined ||
+            op.y2 === undefined
+          )
+            break;
+          const radius = Math.hypot(op.x2 - op.x1, op.y2 - op.y1);
+          ctx.beginPath();
+          ctx.arc(op.x1, op.y1, radius, 0, Math.PI * 2);
+          ctx.stroke();
+          break;
         }
-        ctx.stroke();
-        break;
-
-      case 'line':
-        if (
-          op.x1 === undefined ||
-          op.y1 === undefined ||
-          op.x2 === undefined ||
-          op.y2 === undefined
-        )
-          break;
-        ctx.beginPath();
-        ctx.moveTo(op.x1, op.y1);
-        ctx.lineTo(op.x2, op.y2);
-        ctx.stroke();
-        break;
-
-      case 'rect':
-        if (
-          op.x1 === undefined ||
-          op.y1 === undefined ||
-          op.x2 === undefined ||
-          op.y2 === undefined
-        )
-          break;
-        ctx.strokeRect(
-          Math.min(op.x1, op.x2),
-          Math.min(op.y1, op.y2),
-          Math.abs(op.x2 - op.x1),
-          Math.abs(op.y2 - op.y1),
-        );
-        break;
-
-      case 'circle': {
-        if (
-          op.x1 === undefined ||
-          op.y1 === undefined ||
-          op.x2 === undefined ||
-          op.y2 === undefined
-        )
-          break;
-        const radius = Math.hypot(op.x2 - op.x1, op.y2 - op.y1);
-        ctx.beginPath();
-        ctx.arc(op.x1, op.y1, radius, 0, Math.PI * 2);
-        ctx.stroke();
-        break;
       }
-    }
-  }, []);
+    },
+    [],
+  );
 
-  // Render all operations using offscreen canvas for consistent flood fill
-  const render = useCallback(() => {
-    const ctx = getContext();
-    if (!ctx) return;
+  // ============================================
+  // REBUILD WORLD CANVAS
+  // ============================================
+  // This is the HEAVY operation - only runs when opsArray changes
+  // Uses INCREMENTAL TIMELINE REPLAY to prevent "time travel" fills:
+  // - Each fill operation sees only the strokes that came BEFORE it in the ops array
+  // - This ensures later strokes don't retroactively change earlier fill results
+  // - Y.Array order is the authoritative timeline (not timestamp-based sorting)
+  const rebuildWorldCanvas = useCallback(() => {
+    initOffscreenCanvases();
 
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const worldCanvas = worldCanvasRef.current;
+    const strokeCanvas = strokeCanvasRef.current;
+    const fillCanvas = fillCanvasRef.current;
 
-    // Create or reuse offscreen canvas at fixed world size
-    // This ensures flood fill works identically on all devices
-    if (!offscreenCanvasRef.current) {
-      offscreenCanvasRef.current = document.createElement('canvas');
-      offscreenCanvasRef.current.width = CANVAS_WIDTH;
-      offscreenCanvasRef.current.height = CANVAS_HEIGHT;
-    }
-    const offscreen = offscreenCanvasRef.current;
-    const offCtx = offscreen.getContext('2d');
-    if (!offCtx) return;
+    if (!worldCanvas || !strokeCanvas || !fillCanvas) return;
 
-    // Clear offscreen canvas with theme-appropriate background
-    offCtx.fillStyle = isDark ? '#111827' : '#ffffff';
-    offCtx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    const worldCtx = worldCanvas.getContext('2d');
+    const strokeCtx = strokeCanvas.getContext('2d');
+    const fillCtx = fillCanvas.getContext('2d');
 
-    // Get erased IDs from all ops
-    const erasedIds = new Set<string>();
+    if (!worldCtx || !strokeCtx || !fillCtx) return;
+
+    // ============================================
+    // CLEAR CANVASES
+    // ============================================
+    // strokeCanvas: transparent (strokes only)
+    strokeCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // fillCanvas: Use theme background color (solid base for flood fill)
+    // Solid opaque background eliminates interpolation artifacts (seam lines)
+    fillCtx.fillStyle = getBackgroundColor();
+    fillCtx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // ============================================
+    // INCREMENTAL TIMELINE REPLAY
+    // ============================================
+    // Iterate ops in Y.Array order (authoritative timeline).
+    // For each op:
+    // - If erase: add eraseIds to deletedIds set
+    // - If stroke (and not deleted): draw to strokeCanvas immediately
+    // - If fill (and not deleted): run flood fill on fillCanvas using CURRENT
+    //   strokeCanvas state (only strokes drawn so far, not future strokes)
+
+    const deletedIds = new Set<string>();
     const ops = opsArray.toArray();
 
-    // Also consider the current operation if it is an eraser
-    if (
-      currentOp.current &&
-      currentOp.current.type === 'erase' &&
-      currentOp.current.eraseIds
-    ) {
-      for (const id of currentOp.current.eraseIds) {
-        erasedIds.add(id);
-      }
-    }
-
     for (const op of ops) {
+      // Handle erase ops: add eraseIds to deleted set
       if (op.type === 'erase' && op.eraseIds) {
         for (const id of op.eraseIds) {
-          erasedIds.add(id);
+          deletedIds.add(id);
         }
+        continue;
       }
-    }
 
-    // Process operations in chronological order
-    // For fill operations, we apply flood fill at the stored position
-    // This renders to the offscreen canvas in world coordinates
-    for (const op of ops) {
-      if (erasedIds.has(op.id)) continue;
+      // Skip deleted ops
+      if (deletedIds.has(op.id)) continue;
 
       if (op.type === 'fill') {
-        // Apply flood fill at the world position stored in the operation
+        // CRITICAL: Read CURRENT strokeCanvas state (strokes drawn so far)
+        // This ensures the fill only sees strokes that occurred BEFORE it
         if (op.x1 !== undefined && op.y1 !== undefined) {
-          floodFill(offCtx, op.x1, op.y1, op.colour);
+          const currentStrokeData = strokeCtx.getImageData(
+            0,
+            0,
+            CANVAS_WIDTH,
+            CANVAS_HEIGHT,
+          );
+          floodFillWithBoundary(
+            fillCtx,
+            currentStrokeData,
+            op.x1,
+            op.y1,
+            op.colour,
+          );
         }
-      } else if (op.type !== 'erase') {
-        // Draw stroke operations
-        drawOp(offCtx, op);
+      } else {
+        // Draw stroke to strokeCanvas immediately
+        // This stroke will be visible to subsequent fill operations
+        drawStrokeOp(strokeCtx, op);
       }
     }
 
-    // Draw current operation preview (for strokes only, fills are instant)
+    // ============================================
+    // COMPOSITE TO WORLD CANVAS
+    // ============================================
+    // Keep worldCanvas transparent - theme background is applied in renderViewport
+    // This is critical for collaboration: world state is theme-independent
+    worldCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Order: fillCanvas (bottom) -> strokeCanvas (top)
+    // This ensures strokes render ON TOP of fills, hiding anti-aliasing artifacts
+    worldCtx.drawImage(fillCanvas, 0, 0);
+    worldCtx.drawImage(strokeCanvas, 0, 0);
+
+    worldNeedsRebuildRef.current = false;
+  }, [opsArray, drawStrokeOp, initOffscreenCanvases, getBackgroundColor]);
+
+  // ============================================
+  // RENDER VIEWPORT
+  // ============================================
+  // This is the LIGHT operation - runs on every frame, pan, zoom
+  // Simply copies the pre-rendered world canvas to the screen
+  // Works in PHYSICAL PIXELS directly to prevent seam line artifacts
+  const renderViewport = useCallback(() => {
+    const ctx = getContext();
+    const canvas = canvasRef.current;
+    const worldCanvas = worldCanvasRef.current;
+
+    if (!ctx || !canvas || !worldCanvas) return;
+
+    // Work in physical pixels directly (canvas.width/height are already DPR-scaled)
+    const physWidth = canvas.width;
+    const physHeight = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+
+    // ============================================
+    // RESET CONTEXT STATE
+    // ============================================
+    // Reset to identity transform - we work in physical pixels
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = true; // Enable for smooth scaling
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Clear canvas (background already in worldCanvas)
+    ctx.clearRect(0, 0, physWidth, physHeight);
+
+    // ============================================
+    // CALCULATE SOURCE RECTANGLE
+    // ============================================
+    // Source coordinates in world space (integer to prevent subpixel sampling)
+    const srcX = Math.floor(Math.max(0, viewportOffset.x));
+    const srcY = Math.floor(Math.max(0, viewportOffset.y));
+
+    // Calculate how much of the world we're viewing
+    // CSS dimensions = physical / dpr, then divided by zoom scale
+    const cssWidth = physWidth / dpr;
+    const cssHeight = physHeight / dpr;
+    const viewWorldW = cssWidth / scale;
+    const viewWorldH = cssHeight / scale;
+
+    // Clamp source dimensions to world canvas bounds
+    const srcW = Math.min(viewWorldW, CANVAS_WIDTH - srcX);
+    const srcH = Math.min(viewWorldH, CANVAS_HEIGHT - srcY);
+
+    // ============================================
+    // DRAW WORLD CANVAS ON TOP
+    // ============================================
+    // worldCanvas contains fills (white base + colors) and strokes
+    // Draw it normally - the white base will show through for unfilled areas
+    if (srcW > 0 && srcH > 0) {
+      ctx.drawImage(
+        worldCanvas,
+        srcX,
+        srcY,
+        srcW,
+        srcH, // Source: portion of world canvas
+        0,
+        0,
+        physWidth,
+        physHeight, // Destination: FULL physical canvas
+      );
+    }
+
+    // ============================================
+    // DRAW CURRENT OPERATION PREVIEW
+    // ============================================
+    // (for strokes only, fills are instant)
     if (
       currentOp.current &&
       currentOp.current.type !== 'erase' &&
       currentOp.current.type !== 'fill'
     ) {
-      drawOp(offCtx, currentOp.current);
+      ctx.save();
+
+      // Scale from world coords to physical pixels
+      // Combined transform: world -> CSS -> physical
+      const worldToPhys = dpr * scale;
+      ctx.scale(worldToPhys, worldToPhys);
+      ctx.translate(-viewportOffset.x, -viewportOffset.y);
+
+      drawStrokeOp(ctx, currentOp.current);
+
+      ctx.restore();
     }
+  }, [getContext, viewportOffset, scale, drawStrokeOp]);
 
-    // Now copy the visible viewport portion from offscreen canvas to screen
-    ctx.fillStyle = isDark ? '#111827' : '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Calculate source rectangle (what part of the world canvas to show)
-    const srcX = Math.max(0, viewportOffset.x);
-    const srcY = Math.max(0, viewportOffset.y);
-    const srcW = canvas.width / scale;
-    const srcH = canvas.height / scale;
-
-    // Draw the visible portion scaled to fill the screen canvas
-    ctx.drawImage(
-      offscreen,
-      srcX,
-      srcY,
-      srcW,
-      srcH, // Source rectangle (world coords)
-      0,
-      0,
-      canvas.width,
-      canvas.height, // Destination rectangle (screen)
-    );
-  }, [getContext, opsArray, drawOp, isDark, viewportOffset, scale]);
-
-  // Use requestAnimationFrame for smooth rendering
-  const scheduleRender = useCallback(() => {
-    const now = performance.now();
-    if (now - lastRenderTime.current > 16) {
-      // ~60fps
-      lastRenderTime.current = now;
-      requestAnimationFrame(render);
+  // Schedule viewport render with requestAnimationFrame
+  const rafIdRef = useRef<number | null>(null);
+  const scheduleViewportRender = useCallback(() => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
     }
-  }, [render]);
+    rafIdRef.current = requestAnimationFrame(() => {
+      renderViewport();
+      rafIdRef.current = null;
+    });
+  }, [renderViewport]);
 
-  // Handle resize - use ResizeObserver for container resizes (sidebar toggle)
+  // ============================================
+  // EFFECTS
+  // ============================================
+
+  // Effect 1: Rebuild world canvas on data changes (opsArray)
+  useEffect(() => {
+    worldNeedsRebuildRef.current = true;
+    rebuildWorldCanvas();
+    scheduleViewportRender();
+  }, [opsArray, rebuildWorldCanvas, scheduleViewportRender]);
+
+  // Effect 2: Re-render viewport on visual changes (pan/zoom) - NO heavy calculation
+  useEffect(() => {
+    scheduleViewportRender();
+  }, [viewportOffset, scale, scheduleViewportRender]);
+
+  // Effect 3: Re-render on theme change (need to rebuild world canvas)
+  useEffect(() => {
+    worldNeedsRebuildRef.current = true;
+    rebuildWorldCanvas();
+    scheduleViewportRender();
+  }, [isDark, rebuildWorldCanvas, scheduleViewportRender]);
+
+  // Effect 4: Handle resize - use ResizeObserver for container resizes
   useLayoutEffect(() => {
     resizeCanvas();
-    render();
+    scheduleViewportRender();
 
     const container = containerRef.current;
     if (!container) return;
 
-    // ResizeObserver handles both window resize and sidebar toggle
     const resizeObserver = new ResizeObserver(() => {
       resizeCanvas();
-      render();
+      scheduleViewportRender();
     });
 
     resizeObserver.observe(container);
 
     return () => {
       resizeObserver.disconnect();
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
     };
-  }, [resizeCanvas, render]);
+  }, [resizeCanvas, scheduleViewportRender]);
 
   // Subscribe to Yjs changes
   useEffect(() => {
     const observer = () => {
-      scheduleRender();
+      worldNeedsRebuildRef.current = true;
+      rebuildWorldCanvas();
+      scheduleViewportRender();
     };
 
     opsArray.observe(observer);
-    render();
 
     return () => {
       opsArray.unobserve(observer);
     };
-  }, [opsArray, render, scheduleRender]);
+  }, [opsArray, rebuildWorldCanvas, scheduleViewportRender]);
 
   // Get mouse/touch position relative to canvas, accounting for viewport offset
   const getPosition = useCallback(
@@ -671,7 +902,7 @@ export function Whiteboard() {
         setCanUndo(true);
         setCanRedo(false);
         isDrawing.current = false;
-        scheduleRender();
+        // World canvas will be rebuilt by the opsArray observer
         return;
       } else if (tool === 'eraser') {
         currentOp.current = {
@@ -705,9 +936,9 @@ export function Whiteboard() {
         };
       }
 
-      scheduleRender();
+      scheduleViewportRender();
     },
-    [tool, colour, size, getPosition, scheduleRender, opsArray],
+    [tool, colour, size, getPosition, scheduleViewportRender, opsArray],
   );
 
   // Continue drawing
@@ -737,9 +968,9 @@ export function Whiteboard() {
         currentOp.current.y2 = pos.y;
       }
 
-      scheduleRender();
+      scheduleViewportRender();
     },
-    [tool, getPosition, scheduleRender, opsArray],
+    [tool, getPosition, scheduleViewportRender, opsArray],
   );
 
   // End drawing
@@ -770,8 +1001,8 @@ export function Whiteboard() {
     }
 
     currentOp.current = null;
-    scheduleRender();
-  }, [tool, opsArray, scheduleRender]);
+    // World canvas will be rebuilt by the opsArray observer
+  }, [tool, opsArray]);
 
   // Touch-specific handlers for pan gesture (two-finger) vs drawing (one-finger)
   const handleTouchStart = useCallback(
