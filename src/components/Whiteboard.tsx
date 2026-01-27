@@ -29,6 +29,12 @@ interface Point {
   y: number;
 }
 
+interface PointerState {
+  x: number;
+  y: number;
+  pointerType: string;
+}
+
 interface DrawOp {
   id: string;
   ts: number;
@@ -419,17 +425,20 @@ export function Whiteboard() {
   const redoStack = useRef<DrawOp[]>([]);
 
   // Viewport transform (refs for direct manipulation, bypassing React render cycle)
-  // Center the initial viewport
   const transformRef = useRef({
-    x: (CANVAS_WIDTH - window.innerWidth) / 2,
-    y: (CANVAS_HEIGHT - window.innerHeight) / 2,
+    x: 0,
+    y: 0,
     scale: 1,
-  });
+  }); // FIX: initial camera placement happens after resize using CSS size.
   const isPanning = useRef(false);
-  const lastPanPoint = useRef<Point>({ x: 0, y: 0 });
-  const touchCount = useRef(0);
-
+  const lastPanPoint = useRef<Point>({ x: 0, y: 0 }); // canvas-local CSS pixels
   const lastPinchDistance = useRef(0);
+  const hasInitializedViewport = useRef(false);
+  const lastResizeSizeRef = useRef<{ width: number; height: number } | null>(
+    null,
+  );
+  const hasUserViewportChangeRef = useRef(false);
+  const activePointersRef = useRef<Map<number, PointerState>>(new Map());
   const MIN_SCALE = 0.25;
   const MAX_SCALE = 4;
 
@@ -442,6 +451,14 @@ export function Whiteboard() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      // FIX: ensure pointer events can cancel native gestures on mobile.
+      canvas.style.touchAction = 'none';
+    }
   }, []);
 
   // Get canvas context
@@ -473,6 +490,82 @@ export function Whiteboard() {
     canvasCssWidthRef.current = rect.width;
     canvasCssHeightRef.current = rect.height;
   }, []);
+
+  // Clamp viewport to world bounds using CSS pixels (not physical pixels).
+  const clampTransform = useCallback(
+    (x: number, y: number, scale: number) => {
+      const cssWidth = canvasCssWidthRef.current;
+      const cssHeight = canvasCssHeightRef.current;
+
+      if (cssWidth <= 0 || cssHeight <= 0) {
+        return { x: 0, y: 0, scale };
+      }
+
+      const viewWorldW = cssWidth / scale;
+      const viewWorldH = cssHeight / scale;
+      const maxX = Math.max(0, CANVAS_WIDTH - viewWorldW);
+      const maxY = Math.max(0, CANVAS_HEIGHT - viewWorldH);
+
+      return {
+        x: Math.max(0, Math.min(maxX, x)),
+        y: Math.max(0, Math.min(maxY, y)),
+        scale,
+      };
+    },
+    [],
+  );
+
+  // Center viewport after initial sizing or major orientation/size changes.
+  const centerViewport = useCallback(
+    (scale = transformRef.current.scale) => {
+      const cssWidth = canvasCssWidthRef.current;
+      const cssHeight = canvasCssHeightRef.current;
+      if (cssWidth <= 0 || cssHeight <= 0) return;
+
+      const viewWorldW = cssWidth / scale;
+      const viewWorldH = cssHeight / scale;
+      const centeredX = (CANVAS_WIDTH - viewWorldW) / 2;
+      const centeredY = (CANVAS_HEIGHT - viewWorldH) / 2;
+
+      // FIX: center using canvas CSS size, then clamp within world bounds.
+      transformRef.current = clampTransform(centeredX, centeredY, scale);
+    },
+    [clampTransform],
+  );
+
+  const updateViewportForResize = useCallback(() => {
+    const cssWidth = canvasCssWidthRef.current;
+    const cssHeight = canvasCssHeightRef.current;
+    if (cssWidth <= 0 || cssHeight <= 0) return;
+
+    const prev = lastResizeSizeRef.current;
+    const orientationChanged =
+      prev !== null && (prev.width > prev.height) !== (cssWidth > cssHeight);
+    const sizeChangeLarge =
+      prev !== null &&
+      (Math.abs(cssWidth - prev.width) > prev.width * 0.15 ||
+        Math.abs(cssHeight - prev.height) > prev.height * 0.15);
+
+    const shouldRecenter =
+      !hasInitializedViewport.current ||
+      ((orientationChanged || sizeChangeLarge) &&
+        !hasUserViewportChangeRef.current);
+
+    if (shouldRecenter) {
+      // FIX: initial camera placement + sensible recenter on big resize.
+      centerViewport();
+    } else {
+      // FIX: keep current view but clamp using CSS size on resize.
+      transformRef.current = clampTransform(
+        transformRef.current.x,
+        transformRef.current.y,
+        transformRef.current.scale,
+      );
+    }
+
+    hasInitializedViewport.current = true;
+    lastResizeSizeRef.current = { width: cssWidth, height: cssHeight };
+  }, [centerViewport, clampTransform]);
 
   // Initialize offscreen canvases
   const initOffscreenCanvases = useCallback(() => {
@@ -789,6 +882,7 @@ export function Whiteboard() {
   // Effect 4: Handle resize - use ResizeObserver for container resizes
   useLayoutEffect(() => {
     resizeCanvas();
+    updateViewportForResize();
     scheduleViewportRender();
 
     const container = containerRef.current;
@@ -796,6 +890,7 @@ export function Whiteboard() {
 
     const resizeObserver = new ResizeObserver(() => {
       resizeCanvas();
+      updateViewportForResize();
       scheduleViewportRender();
     });
 
@@ -807,7 +902,7 @@ export function Whiteboard() {
         cancelAnimationFrame(rafIdRef.current);
       }
     };
-  }, [resizeCanvas, scheduleViewportRender]);
+  }, [resizeCanvas, updateViewportForResize, scheduleViewportRender]);
 
   // Subscribe to Yjs changes
   useEffect(() => {
@@ -826,7 +921,7 @@ export function Whiteboard() {
 
   // Get mouse/touch position relative to canvas, accounting for viewport offset
   const getPosition = useCallback(
-    (e: React.MouseEvent | React.TouchEvent): Point => {
+    (e: React.MouseEvent | React.TouchEvent | React.PointerEvent): Point => {
       const canvas = canvasRef.current;
       if (!canvas) return { x: 0, y: 0 };
 
@@ -854,34 +949,40 @@ export function Whiteboard() {
     [],
   );
 
-  // Get center point of multiple touches (for pan gesture)
-  const getTouchCenter = useCallback((touches: React.TouchList): Point => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
+  const getActiveTouchPoints = useCallback((): PointerState[] => {
+    const points: PointerState[] = [];
+    activePointersRef.current.forEach((pointer) => {
+      if (pointer.pointerType === 'touch') {
+        points.push(pointer);
+      }
+    });
+    return points;
+  }, []);
 
+  const getTouchCentroid = useCallback((points: PointerState[]): Point => {
+    if (points.length === 0) return { x: 0, y: 0 };
     let sumX = 0;
     let sumY = 0;
-    for (let i = 0; i < touches.length; i++) {
-      sumX += touches[i].clientX;
-      sumY += touches[i].clientY;
+    for (const p of points) {
+      sumX += p.x;
+      sumY += p.y;
     }
     return {
-      x: sumX / touches.length,
-      y: sumY / touches.length,
+      x: sumX / points.length,
+      y: sumY / points.length,
     };
   }, []);
 
-  // Get distance between two touches (for pinch gesture)
-  const getTouchDistance = useCallback((touches: React.TouchList): number => {
-    if (touches.length < 2) return 0;
-    const dx = touches[1].clientX - touches[0].clientX;
-    const dy = touches[1].clientY - touches[0].clientY;
+  const getTouchDistance = useCallback((points: PointerState[]): number => {
+    if (points.length < 2) return 0;
+    const dx = points[1].x - points[0].x;
+    const dy = points[1].y - points[0].y;
     return Math.hypot(dx, dy);
   }, []);
 
   // Start drawing
   const handleStart = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
+    (e: React.PointerEvent) => {
       const pos = getPosition(e);
       isDrawing.current = true;
       startPoint.current = pos;
@@ -944,7 +1045,7 @@ export function Whiteboard() {
 
   // Continue drawing
   const handleMove = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
+    (e: React.PointerEvent) => {
       if (!isDrawing.current || !currentOp.current) return;
 
       const pos = getPosition(e);
@@ -1005,132 +1106,189 @@ export function Whiteboard() {
     // World canvas will be rebuilt by the opsArray observer
   }, [tool, opsArray]);
 
-  // Touch-specific handlers for pan gesture (two-finger) vs drawing (one-finger)
-  const handleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      touchCount.current = e.touches.length;
+  // Pointer handlers: touch = pan/zoom, mouse/pen = draw.
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-      if (e.touches.length >= 2) {
-        // Two or more fingers: start panning/pinching
+      if (e.pointerType === 'touch') {
+        canvas.setPointerCapture(e.pointerId);
+        activePointersRef.current.set(e.pointerId, {
+          x: e.clientX,
+          y: e.clientY,
+          pointerType: e.pointerType,
+        });
+
         e.preventDefault();
-        isPanning.current = true;
-        isDrawing.current = false;
-        currentOp.current = null;
-        lastPanPoint.current = getTouchCenter(e.touches);
-        lastPinchDistance.current = getTouchDistance(e.touches);
-      } else if (e.touches.length === 1 && !isPanning.current) {
-        // Single finger: draw (only if not already panning)
-        const syntheticEvent = e as React.TouchEvent;
-        handleStart(syntheticEvent);
+
+        const touchPoints = getActiveTouchPoints();
+        if (touchPoints.length >= 2) {
+          // FIX: enter pan/zoom mode on multi-touch, never draw.
+          isPanning.current = true;
+          isDrawing.current = false;
+          currentOp.current = null;
+
+          const rect = canvas.getBoundingClientRect();
+          const centroid = getTouchCentroid(touchPoints);
+          lastPanPoint.current = {
+            x: centroid.x - rect.left,
+            y: centroid.y - rect.top,
+          };
+          lastPinchDistance.current = getTouchDistance(touchPoints);
+          return;
+        }
+
+        if (!isPanning.current) {
+          handleStart(e);
+        }
+        return;
       }
+
+      handleStart(e);
     },
-    [handleStart, getTouchCenter, getTouchDistance],
+    [getActiveTouchPoints, getTouchCentroid, getTouchDistance, handleStart],
   );
 
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      if (e.touches.length >= 2 || isPanning.current) {
-        // Panning and/or pinch-zoom mode
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      if (e.pointerType === 'touch') {
+        if (!activePointersRef.current.has(e.pointerId)) return;
         e.preventDefault();
-        isPanning.current = true;
+        activePointersRef.current.set(e.pointerId, {
+          x: e.clientX,
+          y: e.clientY,
+          pointerType: e.pointerType,
+        });
 
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+        const touchPoints = getActiveTouchPoints();
+        if (touchPoints.length >= 2 || isPanning.current) {
+          // Panning and/or pinch-zoom mode
+          isPanning.current = true;
 
-        const rect = canvas.getBoundingClientRect();
+          const rect = canvas.getBoundingClientRect();
+          const centroid = getTouchCentroid(touchPoints);
+          const localCenter = {
+            x: centroid.x - rect.left,
+            y: centroid.y - rect.top,
+          };
 
-        // Get touch center in screen coordinates
-        const touchCenterScreen = getTouchCenter(e.touches);
+          let nextScale = transformRef.current.scale;
+          let nextX = transformRef.current.x;
+          let nextY = transformRef.current.y;
 
-        // Handle pinch-to-zoom when two fingers are present
-        if (e.touches.length >= 2) {
-          const currentDistance = getTouchDistance(e.touches);
-          if (lastPinchDistance.current > 0 && currentDistance > 0) {
-            // CRITICAL FIX: Zoom at touch centroid, not screen center
-            // 1. Convert touch center to world coordinates using CURRENT transform
-            const worldPoint = {
-              x:
-                (touchCenterScreen.x - rect.left) / transformRef.current.scale +
-                transformRef.current.x,
-              y:
-                (touchCenterScreen.y - rect.top) / transformRef.current.scale +
-                transformRef.current.y,
-            };
+          if (touchPoints.length >= 2) {
+            const currentDistance = getTouchDistance(touchPoints);
+            if (lastPinchDistance.current > 0 && currentDistance > 0) {
+              const pinchRatio = currentDistance / lastPinchDistance.current;
+              const newScale = Math.max(
+                MIN_SCALE,
+                Math.min(MAX_SCALE, nextScale * pinchRatio),
+              );
 
-            // 2. Calculate new scale
-            const pinchRatio = currentDistance / lastPinchDistance.current;
-            const newScale = Math.max(
-              MIN_SCALE,
-              Math.min(MAX_SCALE, transformRef.current.scale * pinchRatio),
-            );
+              const worldPoint = {
+                x: localCenter.x / nextScale + nextX,
+                y: localCenter.y / nextScale + nextY,
+              };
 
-            // 3. Calculate new offset to keep worldPoint locked to touchCenter
-            transformRef.current.x =
-              (touchCenterScreen.x - rect.left) / newScale - worldPoint.x;
-            transformRef.current.y =
-              (touchCenterScreen.y - rect.top) / newScale - worldPoint.y;
-            transformRef.current.scale = newScale;
+              // FIX: centroid-locked zoom for top-left world origin.
+              nextScale = newScale;
+              nextX = worldPoint.x - localCenter.x / newScale;
+              nextY = worldPoint.y - localCenter.y / newScale;
+            }
+            lastPinchDistance.current = currentDistance;
+          } else {
+            lastPinchDistance.current = 0;
           }
-          lastPinchDistance.current = currentDistance;
+
+          const deltaCx = localCenter.x - lastPanPoint.current.x;
+          const deltaCy = localCenter.y - lastPanPoint.current.y;
+          lastPanPoint.current = localCenter;
+
+          // FIX: pan in world units using CSS pixel deltas.
+          nextX -= deltaCx / nextScale;
+          nextY -= deltaCy / nextScale;
+
+          // FIX: clamp using CSS size (avoids DPR "stuck" pan).
+          transformRef.current = clampTransform(nextX, nextY, nextScale);
+          hasUserViewportChangeRef.current = true;
+
+          scheduleViewportRender();
+          return;
         }
 
-        // Apply panning (adjusted for current scale)
-        const deltaX = lastPanPoint.current.x - touchCenterScreen.x;
-        const deltaY = lastPanPoint.current.y - touchCenterScreen.y;
-        lastPanPoint.current = touchCenterScreen;
-
-        const maxX = Math.max(
-          0,
-          CANVAS_WIDTH - canvas.width / transformRef.current.scale,
-        );
-        const maxY = Math.max(
-          0,
-          CANVAS_HEIGHT - canvas.height / transformRef.current.scale,
-        );
-
-        transformRef.current.x = Math.max(
-          0,
-          Math.min(
-            maxX,
-            transformRef.current.x + deltaX / transformRef.current.scale,
-          ),
-        );
-        transformRef.current.y = Math.max(
-          0,
-          Math.min(
-            maxY,
-            transformRef.current.y + deltaY / transformRef.current.scale,
-          ),
-        );
-
-        // Render immediately using ref values
-        scheduleViewportRender();
-      } else if (e.touches.length === 1 && !isPanning.current) {
-        // Drawing mode
         handleMove(e);
+        return;
       }
+
+      handleMove(e);
     },
-    [getTouchCenter, getTouchDistance, handleMove, scheduleViewportRender],
+    [
+      clampTransform,
+      getActiveTouchPoints,
+      getTouchCentroid,
+      getTouchDistance,
+      handleMove,
+      scheduleViewportRender,
+    ],
   );
 
-  const handleTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
-      if (e.touches.length === 0) {
-        // All fingers lifted
-        if (isPanning.current) {
-          isPanning.current = false;
-        } else {
-          handleEnd();
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const canvas = canvasRef.current;
+      if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+
+      if (e.pointerType === 'touch') {
+        activePointersRef.current.delete(e.pointerId);
+        const touchPoints = getActiveTouchPoints();
+
+        if (touchPoints.length === 0) {
+          if (isPanning.current) {
+            isPanning.current = false;
+          } else {
+            handleEnd();
+          }
+          lastPinchDistance.current = 0;
+          return;
         }
-        touchCount.current = 0;
-        lastPinchDistance.current = 0;
-      } else if (e.touches.length === 1 && isPanning.current) {
-        // Went from multi-touch to single touch, stay in pan mode
-        lastPanPoint.current = getTouchCenter(e.touches);
-        lastPinchDistance.current = 0;
+
+        if (touchPoints.length === 1 && isPanning.current && canvas) {
+          // Keep panning with the remaining finger (no accidental draw).
+          const rect = canvas.getBoundingClientRect();
+          const centroid = getTouchCentroid(touchPoints);
+          lastPanPoint.current = {
+            x: centroid.x - rect.left,
+            y: centroid.y - rect.top,
+          };
+          lastPinchDistance.current = 0;
+        }
+        return;
+      }
+
+      handleEnd();
+    },
+    [getActiveTouchPoints, getTouchCentroid, handleEnd],
+  );
+
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent) => {
+      handlePointerUp(e);
+    },
+    [handlePointerUp],
+  );
+
+  const handlePointerLeave = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.pointerType !== 'touch') {
+        handleEnd();
       }
     },
-    [handleEnd, getTouchCenter],
+    [handleEnd],
   );
 
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
@@ -1417,13 +1575,11 @@ export function Whiteboard() {
         <canvas
           ref={canvasRef}
           className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
-          onMouseDown={handleStart}
-          onMouseMove={handleMove}
-          onMouseUp={handleEnd}
-          onMouseLeave={handleEnd}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onPointerLeave={handlePointerLeave}
         />
       </div>
     </div>
