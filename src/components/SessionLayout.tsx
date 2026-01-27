@@ -49,10 +49,10 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
 
-  // Active tab state with localStorage persistence
+  // Active tab state with sessionStorage persistence
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'code';
-    const stored = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+    const stored = sessionStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
     return stored === 'code' || stored === 'diagram' ? stored : 'code';
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -155,9 +155,9 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Persist active tab to localStorage
+  // Persist active tab to sessionStorage
   useEffect(() => {
-    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+    sessionStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
   }, [activeTab]);
 
   const statusConfig = {
