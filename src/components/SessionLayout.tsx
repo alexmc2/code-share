@@ -17,8 +17,8 @@ import {
   ChevronRight,
   X,
   Check,
-  Github,
 } from 'lucide-react';
+import { GitHubIcon } from './icons/GitHubIcon';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -308,7 +308,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   rel="noopener noreferrer"
                   title="View source on GitHub"
                 >
-                  <Github className="h-4 w-4" />
+                  <GitHubIcon className="h-4 w-4" />
                 </a>
               </Button>
               {/* Leave Session button */}

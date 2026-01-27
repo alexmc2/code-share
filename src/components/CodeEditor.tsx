@@ -28,7 +28,9 @@ import {
 
 const LANGUAGES = [
   { id: 'javascript', label: 'JavaScript' },
+  { id: 'javascriptreact', label: 'JavaScript React' },
   { id: 'typescript', label: 'TypeScript' },
+  { id: 'typescriptreact', label: 'TypeScript React' },
   { id: 'python', label: 'Python' },
   { id: 'java', label: 'Java' },
   { id: 'csharp', label: 'C#' },
@@ -41,7 +43,9 @@ const LANGUAGES = [
 
 const LANGUAGE_EXTENSIONS: Record<string, string> = {
   javascript: 'js',
+  javascriptreact: 'jsx',
   typescript: 'ts',
+  typescriptreact: 'tsx',
   python: 'py',
   java: 'java',
   csharp: 'cs',
@@ -510,8 +514,15 @@ export function CodeEditor() {
       {/* Editor container */}
       <div className="flex-1 min-h-0 ">
         <Editor
+          key={language}
           height="100%"
-          language={language}
+          language={
+            language === 'typescriptreact'
+              ? 'typescript'
+              : language === 'javascriptreact'
+                ? 'javascript'
+                : language
+          }
           path={`file:///code.${LANGUAGE_EXTENSIONS[language] ?? 'txt'}`}
           defaultPath="file:///code.js"
           theme={isDark ? 'code-share-dark' : 'light'}

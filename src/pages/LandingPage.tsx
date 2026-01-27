@@ -10,8 +10,8 @@ import {
   Terminal,
   Sun,
   Moon,
-  Github,
 } from 'lucide-react';
+import { GitHubIcon } from '../components/icons/GitHubIcon';
 
 export function LandingPage() {
   const navigate = useNavigate();
@@ -52,7 +52,7 @@ export function LandingPage() {
             rel="noopener noreferrer"
             title="View source on GitHub"
           >
-            <Github className="h-4 w-4" />
+            <GitHubIcon className="h-4 w-4" />
           </a>
         </Button>
       </div>
@@ -97,7 +97,7 @@ export function LandingPage() {
 
         <Button
           size="lg"
-          className="text-lg px-8 py-6 rounded-xl shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all hover:-translate-y-0.5"
+          className="text-lg px-8 py-6 rounded-xl shadow-sm shadow-primary/20 hover:shadow-primary/30 transition-all hover:-translate-y-0.5"
           onClick={handleCreateSession}
         >
           Create New Session

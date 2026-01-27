@@ -65,19 +65,19 @@ export function SessionPage() {
 
   if (showNamePrompt) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-[#030617] via-[#030617] to-[#030617] p-8 relative overflow-hidden">
-        {/* Background decoration */}
+      <div className="min-h-screen flex items-center justify-center bg-panel-2 p-8 relative overflow-hidden">
+        {/* Background decoration - theme aware */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-[#080d2c] rounded-full blur-3xl opacity-50" />
-          <div className="absolute top-[40%] -right-[10%] w-[40%] h-[40%] bg-[#080d2c] rounded-full blur-3xl opacity-50" />
+          <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-panel-2 rounded-full blur-3xl opacity-30" />
+          <div className="absolute top-[40%] -right-[10%] w-[40%] h-[40%] bg-panel-2 rounded-full blur-3xl opacity-30" />
         </div>
-        <div className="panel p-8 w-full max-w-md text-center shadow-lg bg-panel-2/90">
+        <div className="panel p-8 w-full max-w-md text-center shadow-none bg-panel border border-border">
           <h2 className="text-2xl font-semibold text-text mb-2">
             Join Session
           </h2>
           <p className="text-text-muted mb-6">
             Session:{' '}
-            <code className="bg-slate-600 px-2 py-1 rounded text-white font-mono">
+            <code className="bg-panel-2 px-2 py-1 rounded text-text font-mono border border-border">
               {sessionId}
             </code>
           </p>
@@ -100,8 +100,8 @@ export function SessionPage() {
             />
             <button
               type="submit"
-              className="bg-linear-to-r from-primary to-primary text-white py-3 px-6 text-base font-semibold rounded-lg
-                         hover:shadow-lg hover:shadow-primary/30 hover:-translate-y-0.5 transition-all
+              className="bg-primary text-white py-3 px-6 text-base font-semibold rounded-lg
+                         hover:bg-primary-hover hover:shadow-lg hover:shadow-primary/30 hover:-translate-y-0.5 transition-all
                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
             >
               Join Session

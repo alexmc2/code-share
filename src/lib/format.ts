@@ -20,8 +20,10 @@ type MonacoLang =
 function monacoToPrettierParser(lang: MonacoLang): BuiltInParserName | null {
   switch (lang) {
     case 'javascript':
+    case 'javascriptreact':
       return 'babel';
     case 'typescript':
+    case 'typescriptreact':
       return 'typescript';
     case 'json':
       return 'json';
