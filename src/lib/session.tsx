@@ -106,7 +106,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       // Set up WebRTC manager
       webrtc.setLocalPeerId(localPeerId);
-      webrtc.setConnectionChangeHandler((peerId, connected) => {
+      webrtc.addConnectionChangeHandler((peerId, connected) => {
         updateParticipantConnection(peerId, connected);
       });
       webrtc.setConnectionTypeChangeHandler((type) => {

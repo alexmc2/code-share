@@ -23,9 +23,9 @@ interface PeerConnection {
 export class WebRTCManager {
   private peers: Map<string, PeerConnection> = new Map();
   private onMessageHandler: DataChannelMessageHandler | null = null;
-  private onConnectionChangeHandler:
-    | ((peerId: string, connected: boolean) => void)
-    | null = null;
+  private onConnectionChangeHandlers: Array<
+    (peerId: string, connected: boolean) => void
+  > = [];
   private onConnectionTypeChangeHandler:
     | ((connectionType: ConnectionType) => void)
     | null = null;
@@ -48,10 +48,10 @@ export class WebRTCManager {
     this.onMessageHandler = handler;
   }
 
-  setConnectionChangeHandler(
+  addConnectionChangeHandler(
     handler: (peerId: string, connected: boolean) => void,
   ) {
-    this.onConnectionChangeHandler = handler;
+    this.onConnectionChangeHandlers.push(handler);
   }
 
   setConnectionTypeChangeHandler(
@@ -197,7 +197,9 @@ export class WebRTCManager {
       const isConnected = connection.connectionState === 'connected';
       if (peerConn.isConnected !== isConnected) {
         peerConn.isConnected = isConnected;
-        this.onConnectionChangeHandler?.(peerId, isConnected);
+        for (const handler of this.onConnectionChangeHandlers) {
+          handler(peerId, isConnected);
+        }
       }
 
       // Detect connection type when connected
@@ -250,13 +252,17 @@ export class WebRTCManager {
         peerConn.messageQueue = [];
       }
 
-      this.onConnectionChangeHandler?.(peerConn.peerId, true);
+      for (const handler of this.onConnectionChangeHandlers) {
+        handler(peerConn.peerId, true);
+      }
     };
 
     dataChannel.onclose = () => {
       debugLog('webrtc', 'Data channel CLOSED with:', peerConn.peerId);
       peerConn.isConnected = false;
-      this.onConnectionChangeHandler?.(peerConn.peerId, false);
+      for (const handler of this.onConnectionChangeHandlers) {
+        handler(peerConn.peerId, false);
+      }
     };
 
     dataChannel.onmessage = (event) => {

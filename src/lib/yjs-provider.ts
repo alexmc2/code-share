@@ -60,7 +60,7 @@ export class YjsProvider {
 
     // Set up WebRTC message handler
     webrtc.setMessageHandler(this.handleMessage.bind(this));
-    webrtc.setConnectionChangeHandler(this.handleConnectionChange.bind(this));
+    webrtc.addConnectionChangeHandler(this.handleConnectionChange.bind(this));
   }
 
   private handleConnectionChange(peerId: string, connected: boolean) {

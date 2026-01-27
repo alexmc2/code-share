@@ -285,6 +285,35 @@ export function CodeEditor() {
     return () => yText.unobserve(observer);
   }, [yText]);
 
+  // Handle remote document updates (including full state sync from late-joiner)
+  useEffect(() => {
+    const handleDocUpdate = (_update: Uint8Array, origin: unknown) => {
+      // Only handle remote updates (from peers)
+      if (origin !== 'remote') return;
+
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      if (!editor || !model) return;
+
+      // Get the current Yjs content and editor content
+      const yjsContent = yText.toString();
+      const editorContent = model.getValue();
+
+      // If they differ, update the editor (this handles full state sync)
+      if (yjsContent !== editorContent) {
+        console.log(
+          '[CodeEditor] Remote sync detected, refreshing editor content',
+        );
+        isRemoteChange.current = true;
+        editor.setValue(yjsContent);
+        isRemoteChange.current = false;
+      }
+    };
+
+    doc.on('update', handleDocUpdate);
+    return () => doc.off('update', handleDocUpdate);
+  }, [doc, yText]);
+
   useEffect(() => {
     const updateLanguage = () => {
       const stored = settings.get('language');
