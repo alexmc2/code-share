@@ -2,6 +2,9 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 // Types
 interface Peer {
@@ -269,4 +272,61 @@ io.on('connection', (socket: Socket) => {
 const PORT = parseInt(process.env.PORT || '3001', 10);
 httpServer.listen(PORT, () => {
   console.log(`[server] Signalling server running on port ${PORT}`);
+});
+
+// Serve frontend static files
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Determine the path to the dist folder
+// In development with tsx, we are in src/
+// In production with node dist/index.js, we are in dist/
+const isDev = process.env.NODE_ENV !== 'production';
+const distPath = isDev
+  ? path.join(__dirname, '../../dist')
+  : path.join(__dirname, '../dist'); // Assuming server/dist/index.js structure
+
+// Serve static files
+app.use(express.static(distPath));
+
+// Handle session routes for dynamic OG tags
+app.get('/session/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  const indexPath = path.join(distPath, 'index.html');
+
+  try {
+    let html = fs.readFileSync(indexPath, 'utf-8');
+
+    // Replace OG tags
+    html = html
+      .replace(
+        /<meta property="og:url" content="[^"]+" \/>/g,
+        `<meta property="og:url" content="https://codeshare.uk/session/${sessionId}" />`,
+      )
+      .replace(
+        /<meta property="og:title" content="[^"]+" \/>/g,
+        `<meta property="og:title" content="Join Session ${sessionId}" />`,
+      )
+      .replace(
+        /<meta property="og:description" content="[^"]+" \/>/g,
+        '<meta property="og:description" content="Collaborate in real-time on this Code Share session." />',
+      );
+
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving session page:', error);
+    // Fallback if index.html is missing (e.g. build not run)
+    res.status(500).send('Error loading application. Please try again.');
+  }
+});
+
+// Catch-all route for SPA
+app.get(/.*/, (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  try {
+    res.sendFile(indexPath);
+  } catch (error) {
+    console.error('Error serving session page:', error);
+    res.status(404).send('Application not found. Did you run build?');
+  }
 });
