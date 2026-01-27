@@ -175,93 +175,6 @@ function hitTest(point: Point, op: DrawOp): boolean {
   return false;
 }
 
-// Flood fill algorithm using scanline approach
-function floodFill(
-  ctx: CanvasRenderingContext2D,
-  startX: number,
-  startY: number,
-  fillColor: string,
-): void {
-  const canvas = ctx.canvas;
-  const width = canvas.width;
-  const height = canvas.height;
-
-  // Convert fill color to RGBA
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = 1;
-  tempCanvas.height = 1;
-  const tempCtx = tempCanvas.getContext('2d')!;
-  tempCtx.fillStyle = fillColor;
-  tempCtx.fillRect(0, 0, 1, 1);
-  const fillRGBA = tempCtx.getImageData(0, 0, 1, 1).data;
-
-  // Get image data
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-
-  // Get target color at start position
-  const startIdx = (Math.floor(startY) * width + Math.floor(startX)) * 4;
-  if (startIdx < 0 || startIdx >= data.length) return;
-
-  const targetR = data[startIdx];
-  const targetG = data[startIdx + 1];
-  const targetB = data[startIdx + 2];
-  const targetA = data[startIdx + 3];
-
-  // Don't fill if clicking on the same color
-  if (
-    targetR === fillRGBA[0] &&
-    targetG === fillRGBA[1] &&
-    targetB === fillRGBA[2] &&
-    targetA === fillRGBA[3]
-  ) {
-    return;
-  }
-
-  // Color matching with tolerance
-  const tolerance = 32;
-  const matchesTarget = (idx: number) => {
-    return (
-      Math.abs(data[idx] - targetR) <= tolerance &&
-      Math.abs(data[idx + 1] - targetG) <= tolerance &&
-      Math.abs(data[idx + 2] - targetB) <= tolerance &&
-      Math.abs(data[idx + 3] - targetA) <= tolerance
-    );
-  };
-
-  const setPixel = (idx: number) => {
-    data[idx] = fillRGBA[0];
-    data[idx + 1] = fillRGBA[1];
-    data[idx + 2] = fillRGBA[2];
-    data[idx + 3] = fillRGBA[3];
-  };
-
-  // Scanline flood fill
-  const stack: [number, number][] = [[Math.floor(startX), Math.floor(startY)]];
-  const visited = new Set<number>();
-
-  while (stack.length > 0) {
-    const [x, y] = stack.pop()!;
-
-    if (x < 0 || x >= width || y < 0 || y >= height) continue;
-
-    const idx = (y * width + x) * 4;
-    if (visited.has(idx)) continue;
-    if (!matchesTarget(idx)) continue;
-
-    visited.add(idx);
-    setPixel(idx);
-
-    // Add neighbors
-    stack.push([x + 1, y]);
-    stack.push([x - 1, y]);
-    stack.push([x, y + 1]);
-    stack.push([x, y - 1]);
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-}
-
 export function Whiteboard() {
   const { doc } = useSession();
   const { isDark } = useTheme();
@@ -338,6 +251,12 @@ export function Whiteboard() {
     ctx.lineJoin = 'round';
 
     switch (op.type) {
+      case 'fill':
+        // Fill the entire virtual canvas with the fill color
+        // This is rendered FIRST, so strokes will appear on top
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        break;
+
       case 'path':
         if (!op.points || op.points.length < 2) break;
         ctx.beginPath();
@@ -435,14 +354,24 @@ export function Whiteboard() {
       }
     }
 
-    // Draw all non-erased, non-fill operations first
+    // RENDER ORDER: Fills first, then strokes on top
+    // This ensures fills are background layers and shapes always appear above them
+
+    // 1. Draw fill operations first (sorted by timestamp - they're already in order in the array)
+    for (const op of ops) {
+      if (op.type === 'fill' && !erasedIds.has(op.id)) {
+        drawOp(ctx, op);
+      }
+    }
+
+    // 2. Draw all stroke operations (non-erased, non-fill) on top of fills
     for (const op of ops) {
       if (op.type !== 'erase' && op.type !== 'fill' && !erasedIds.has(op.id)) {
         drawOp(ctx, op);
       }
     }
 
-    // Draw current operation preview
+    // 3. Draw current operation preview (for strokes only, fills are instant)
     if (
       currentOp.current &&
       currentOp.current.type !== 'erase' &&
@@ -452,31 +381,6 @@ export function Whiteboard() {
     }
 
     ctx.restore();
-
-    // Now apply fill operations (on screen coordinates)
-    // Fill operations work on the rendered canvas, so they come after shape rendering
-    for (const op of ops) {
-      if (
-        op.type === 'fill' &&
-        !erasedIds.has(op.id) &&
-        op.x1 !== undefined &&
-        op.y1 !== undefined
-      ) {
-        // Convert world coordinates to screen coordinates
-        const screenX = (op.x1 - viewportOffset.x) * scale;
-        const screenY = (op.y1 - viewportOffset.y) * scale;
-
-        // Only fill if the point is within the canvas
-        if (
-          screenX >= 0 &&
-          screenX < canvas.width &&
-          screenY >= 0 &&
-          screenY < canvas.height
-        ) {
-          floodFill(ctx, screenX, screenY, op.colour);
-        }
-      }
-    }
   }, [getContext, opsArray, drawOp, isDark, viewportOffset, scale]);
 
   // Use requestAnimationFrame for smooth rendering
