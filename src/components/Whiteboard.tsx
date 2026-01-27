@@ -418,18 +418,17 @@ export function Whiteboard() {
   const undoStack = useRef<DrawOp[]>([]);
   const redoStack = useRef<DrawOp[]>([]);
 
-  // Viewport state for pan/scroll (mobile two-finger gesture)
+  // Viewport transform (refs for direct manipulation, bypassing React render cycle)
   // Center the initial viewport
-  const [viewportOffset, setViewportOffset] = useState<Point>(() => ({
+  const transformRef = useRef({
     x: (CANVAS_WIDTH - window.innerWidth) / 2,
     y: (CANVAS_HEIGHT - window.innerHeight) / 2,
-  }));
+    scale: 1,
+  });
   const isPanning = useRef(false);
   const lastPanPoint = useRef<Point>({ x: 0, y: 0 });
   const touchCount = useRef(0);
 
-  // Zoom state for pinch-to-zoom (local only, not synced)
-  const [scale, setScale] = useState(1);
   const lastPinchDistance = useRef(0);
   const MIN_SCALE = 0.25;
   const MAX_SCALE = 4;
@@ -698,15 +697,15 @@ export function Whiteboard() {
     // CALCULATE SOURCE RECTANGLE
     // ============================================
     // Source coordinates in world space (integer to prevent subpixel sampling)
-    const srcX = Math.floor(Math.max(0, viewportOffset.x));
-    const srcY = Math.floor(Math.max(0, viewportOffset.y));
+    const srcX = Math.floor(Math.max(0, transformRef.current.x));
+    const srcY = Math.floor(Math.max(0, transformRef.current.y));
 
     // Calculate how much of the world we're viewing
     // CSS dimensions = physical / dpr, then divided by zoom scale
     const cssWidth = physWidth / dpr;
     const cssHeight = physHeight / dpr;
-    const viewWorldW = cssWidth / scale;
-    const viewWorldH = cssHeight / scale;
+    const viewWorldW = cssWidth / transformRef.current.scale;
+    const viewWorldH = cssHeight / transformRef.current.scale;
 
     // Clamp source dimensions to world canvas bounds
     const srcW = Math.min(viewWorldW, CANVAS_WIDTH - srcX);
@@ -744,15 +743,15 @@ export function Whiteboard() {
 
       // Scale from world coords to physical pixels
       // Combined transform: world -> CSS -> physical
-      const worldToPhys = dpr * scale;
+      const worldToPhys = dpr * transformRef.current.scale;
       ctx.scale(worldToPhys, worldToPhys);
-      ctx.translate(-viewportOffset.x, -viewportOffset.y);
+      ctx.translate(-transformRef.current.x, -transformRef.current.y);
 
       drawStrokeOp(ctx, currentOp.current);
 
       ctx.restore();
     }
-  }, [getContext, viewportOffset, scale, drawStrokeOp]);
+  }, [getContext, drawStrokeOp]);
 
   // Schedule viewport render with requestAnimationFrame
   const rafIdRef = useRef<number | null>(null);
@@ -777,10 +776,8 @@ export function Whiteboard() {
     scheduleViewportRender();
   }, [opsArray, rebuildWorldCanvas, scheduleViewportRender]);
 
-  // Effect 2: Re-render viewport on visual changes (pan/zoom) - NO heavy calculation
-  useEffect(() => {
-    scheduleViewportRender();
-  }, [viewportOffset, scale, scheduleViewportRender]);
+  // Effect 2: Re-render viewport on theme change only
+  // (Pan/zoom now handled via direct ref manipulation + scheduleViewportRender calls)
 
   // Effect 3: Re-render on theme change (need to rebuild world canvas)
   useEffect(() => {
@@ -846,11 +843,15 @@ export function Whiteboard() {
 
       // Convert screen coordinates to world coordinates by accounting for scale and viewport offset
       return {
-        x: (clientX - rect.left) / scale + viewportOffset.x,
-        y: (clientY - rect.top) / scale + viewportOffset.y,
+        x:
+          (clientX - rect.left) / transformRef.current.scale +
+          transformRef.current.x,
+        y:
+          (clientY - rect.top) / transformRef.current.scale +
+          transformRef.current.y,
       };
     },
-    [viewportOffset, scale],
+    [],
   );
 
   // Get center point of multiple touches (for pan gesture)
@@ -1033,45 +1034,83 @@ export function Whiteboard() {
         e.preventDefault();
         isPanning.current = true;
 
-        const center = getTouchCenter(e.touches);
-        const deltaX = lastPanPoint.current.x - center.x;
-        const deltaY = lastPanPoint.current.y - center.y;
-        lastPanPoint.current = center;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+
+        // Get touch center in screen coordinates
+        const touchCenterScreen = getTouchCenter(e.touches);
 
         // Handle pinch-to-zoom when two fingers are present
         if (e.touches.length >= 2) {
           const currentDistance = getTouchDistance(e.touches);
           if (lastPinchDistance.current > 0 && currentDistance > 0) {
+            // CRITICAL FIX: Zoom at touch centroid, not screen center
+            // 1. Convert touch center to world coordinates using CURRENT transform
+            const worldPoint = {
+              x:
+                (touchCenterScreen.x - rect.left) / transformRef.current.scale +
+                transformRef.current.x,
+              y:
+                (touchCenterScreen.y - rect.top) / transformRef.current.scale +
+                transformRef.current.y,
+            };
+
+            // 2. Calculate new scale
             const pinchRatio = currentDistance / lastPinchDistance.current;
-            setScale((prevScale) => {
-              const newScale = prevScale * pinchRatio;
-              return Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
-            });
+            const newScale = Math.max(
+              MIN_SCALE,
+              Math.min(MAX_SCALE, transformRef.current.scale * pinchRatio),
+            );
+
+            // 3. Calculate new offset to keep worldPoint locked to touchCenter
+            transformRef.current.x =
+              (touchCenterScreen.x - rect.left) / newScale - worldPoint.x;
+            transformRef.current.y =
+              (touchCenterScreen.y - rect.top) / newScale - worldPoint.y;
+            transformRef.current.scale = newScale;
           }
           lastPinchDistance.current = currentDistance;
         }
 
         // Apply panning (adjusted for current scale)
-        setViewportOffset((prev) => {
-          const canvas = canvasRef.current;
-          const maxX = canvas
-            ? Math.max(0, CANVAS_WIDTH - canvas.width / scale)
-            : CANVAS_WIDTH;
-          const maxY = canvas
-            ? Math.max(0, CANVAS_HEIGHT - canvas.height / scale)
-            : CANVAS_HEIGHT;
+        const deltaX = lastPanPoint.current.x - touchCenterScreen.x;
+        const deltaY = lastPanPoint.current.y - touchCenterScreen.y;
+        lastPanPoint.current = touchCenterScreen;
 
-          return {
-            x: Math.max(0, Math.min(maxX, prev.x + deltaX / scale)),
-            y: Math.max(0, Math.min(maxY, prev.y + deltaY / scale)),
-          };
-        });
+        const maxX = Math.max(
+          0,
+          CANVAS_WIDTH - canvas.width / transformRef.current.scale,
+        );
+        const maxY = Math.max(
+          0,
+          CANVAS_HEIGHT - canvas.height / transformRef.current.scale,
+        );
+
+        transformRef.current.x = Math.max(
+          0,
+          Math.min(
+            maxX,
+            transformRef.current.x + deltaX / transformRef.current.scale,
+          ),
+        );
+        transformRef.current.y = Math.max(
+          0,
+          Math.min(
+            maxY,
+            transformRef.current.y + deltaY / transformRef.current.scale,
+          ),
+        );
+
+        // Render immediately using ref values
+        scheduleViewportRender();
       } else if (e.touches.length === 1 && !isPanning.current) {
         // Drawing mode
         handleMove(e);
       }
     },
-    [getTouchCenter, getTouchDistance, handleMove, setViewportOffset, scale],
+    [getTouchCenter, getTouchDistance, handleMove, scheduleViewportRender],
   );
 
   const handleTouchEnd = useCallback(

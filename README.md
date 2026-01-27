@@ -1,12 +1,12 @@
 # CodeShare
 
-A lightweight, browser-based collaborative code editor and whiteboard for pair programming. Peer-to-peer over WebRTC.
+A browser-based collaborative code editor and whiteboard for pair programming. Peer-to-peer over WebRTC.
 
 ![image](public/image.png)
 
 ## Features
 
-- **Collaborative Code Editor**: Monaco Editor with syntax highlighting for 10+ languages
+- **Collaborative Code Editor**: Monaco Editor (10+ languages) with prettier formatting for supported languages
 - **Whiteboard**: Canvas-based drawing with pen, line, rectangle, circle tools
 - **Live Chat**: Real-time messaging synced across participants
 - **Peer-to-Peer**: Content flows directly between browsers via WebRTC
