@@ -242,7 +242,6 @@ VITE_TURN_CREDENTIAL=password
 
 ## Known Limitations
 
-- **Eraser simplified**: Eraser tool is basic (no object selection in MVP)
 - **No remote cursors**: Monaco cursor sharing not implemented in MVP
 
 ## Deployment Requirements

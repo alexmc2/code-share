@@ -423,10 +423,22 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
             className="flex-1 overflow-hidden flex min-w-0"
             style={{ minWidth: isMobile ? 0 : MIN_MAIN_WIDTH }}
           >
-            <div className={activeTab === 'code' ? 'flex-1 flex' : 'hidden'}>
+            <div
+              className={
+                activeTab === 'code'
+                  ? 'flex-1 flex min-w-0 overflow-hidden'
+                  : 'hidden'
+              }
+            >
               <CodeEditor />
             </div>
-            <div className={activeTab === 'diagram' ? 'flex-1 flex' : 'hidden'}>
+            <div
+              className={
+                activeTab === 'diagram'
+                  ? 'flex-1 flex min-w-0 overflow-hidden'
+                  : 'hidden'
+              }
+            >
               <Whiteboard />
             </div>
           </div>
@@ -448,6 +460,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                 style={{ transform: 'translateX(-50%)' }}
               />
             )}
+
             {sidebarCollapsed ? (
               <div className="flex flex-col items-center py-4">
                 <button

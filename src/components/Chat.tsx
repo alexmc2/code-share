@@ -158,6 +158,20 @@ export function Chat() {
     adjustTextareaHeight();
   }, [input, adjustTextareaHeight]);
 
+  // Adjust height when container resizes (e.g. sidebar transition)
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      adjustTextareaHeight();
+    });
+
+    observer.observe(container);
+
+    return () => observer.disconnect();
+  }, [adjustTextareaHeight]);
+
   return (
     <div
       ref={chatContainerRef}
