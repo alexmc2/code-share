@@ -1,8 +1,10 @@
 # CodeShare
 
-A browser-based collaborative code editor and whiteboard for pair programming. Peer-to-peer over WebRTC.
+A real-time, accountless browser-based collaborative code editor and whiteboard for pair programming. Peer-to-peer over WebRTC with TURN support for NAT traversal.
 
 ![image](public/image.png)
+
+![gif](public/demo.gif)
 
 ## Features
 

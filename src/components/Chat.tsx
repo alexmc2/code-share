@@ -125,7 +125,7 @@ function MessageRow({
               ) : (
                 /* Quick reactions bar */
                 <div className="flex gap-1 p-2">
-                  {['👍', '❤️', '🙏', '😭', '😍', '🤬'].map((emoji) => (
+                  {['👍', '❤️', '🙏', '😭', '😂', '🤬'].map((emoji) => (
                     <button
                       key={emoji}
                       onClick={() => {
