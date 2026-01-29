@@ -405,7 +405,10 @@ export function CodeEditor() {
               }
             }}
           >
-            <SelectTrigger className="w-28 sm:w-35 h-8 bg-panel-2 border-border text-text text-xs sm:text-sm">
+            <SelectTrigger
+              id="language-select"
+              className="w-28 sm:w-35 h-8 bg-panel-2 border-border text-text text-xs sm:text-sm"
+            >
               <SelectValue placeholder="Select Language" />
             </SelectTrigger>
             <SelectContent>

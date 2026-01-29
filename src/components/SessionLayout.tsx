@@ -17,6 +17,7 @@ import {
   ChevronRight,
   X,
   Check,
+  Bell,
 } from 'lucide-react';
 import { GitHubIcon } from './icons/GitHubIcon';
 import { Button } from './ui/button';
@@ -28,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
+import { Switch } from './ui/switch';
 
 type Tab = 'code' | 'diagram';
 
@@ -67,6 +69,17 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [onCopyLink]);
+
+  // Message sound state with localStorage persistence
+  const [messageSoundEnabled, setMessageSoundEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = localStorage.getItem('messageSoundEnabled');
+    return stored === null ? true : stored === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('messageSoundEnabled', String(messageSoundEnabled));
+  }, [messageSoundEnabled]);
 
   // Sidebar width state with localStorage persistence
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -479,18 +492,35 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
               <>
                 <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
                   <h2 className="text-sm font-semibold text-text">Messages</h2>
-                  <button
-                    className="w-6 h-6 rounded flex items-center justify-center text-text-muted
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex items-center gap-1.5"
+                      title="Message sound"
+                    >
+                      <Bell className="w-3.5 h-3.5 text-text-muted" />
+                      <Switch
+                        checked={messageSoundEnabled}
+                        onCheckedChange={setMessageSoundEnabled}
+                        className="scale-75 origin-right"
+                      />
+                    </div>
+                    <button
+                      className="w-6 h-6 rounded flex items-center justify-center text-text-muted
                              hover:text-text hover:bg-panel-2 transition-colors
                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    onClick={() => setSidebarCollapsed(true)}
-                    title="Collapse sidebar"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
+                      onClick={() => setSidebarCollapsed(true)}
+                      title="Collapse sidebar"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
                 <Participants />
-                <Chat />
+                <Chat
+                  soundEnabled={
+                    messageSoundEnabled && (!isMobile || !mobileDrawerOpen)
+                  }
+                />
               </>
             )}
           </aside>
@@ -508,19 +538,32 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
             <div className="fixed inset-y-0 right-0 w-[85%] max-w-sm bg-panel border-l border-border z-50 flex flex-col animate-slide-in-right">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
                 <h2 className="text-sm font-semibold text-text">Messages</h2>
-                <button
-                  className="w-8 h-8 rounded-lg bg-panel-2 border border-border flex items-center justify-center
+                <div className="flex items-center gap-3">
+                  <div
+                    className="flex items-center gap-1.5"
+                    title="Message sound"
+                  >
+                    <Bell className="w-3.5 h-3.5 text-text-muted" />
+                    <Switch
+                      checked={messageSoundEnabled}
+                      onCheckedChange={setMessageSoundEnabled}
+                      className="scale-75 origin-right"
+                    />
+                  </div>
+                  <button
+                    className="w-8 h-8 rounded-lg bg-panel-2 border border-border flex items-center justify-center
                            text-text-muted hover:text-text hover:bg-border/50 transition-colors
                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  onClick={() => setMobileDrawerOpen(false)}
-                  title="Close messages"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                    onClick={() => setMobileDrawerOpen(false)}
+                    title="Close messages"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                 <Participants />
-                <Chat />
+                <Chat soundEnabled={messageSoundEnabled} />
               </div>
             </div>
           </>

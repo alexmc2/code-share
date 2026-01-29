@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { Button } from './ui/button';
+import * as Y from 'yjs';
 
 interface ChatMessage {
   id: string;
@@ -26,7 +27,11 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
-export function Chat() {
+interface ChatProps {
+  soundEnabled?: boolean;
+}
+
+export function Chat({ soundEnabled = true }: ChatProps) {
   const { doc, localName } = useSession();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -37,14 +42,105 @@ export function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const soundEnabledRef = useRef(soundEnabled);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const hasUnlockedAudio = useRef(false);
+
+  // Update ref when prop changes
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  // Unlock AudioContext on user interaction
+  useEffect(() => {
+    const unlock = () => {
+      if (!audioContextRef.current) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          audioContextRef.current = new AudioContext();
+        }
+      }
+      if (audioContextRef.current?.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+      hasUnlockedAudio.current = true;
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
+  const playPing = useCallback(() => {
+    if (!hasUnlockedAudio.current || !soundEnabledRef.current) return;
+    try {
+      const ctx = audioContextRef.current;
+      if (!ctx) return;
+
+      const t = ctx.currentTime;
+      const masterGain = ctx.createGain();
+      masterGain.connect(ctx.destination);
+      masterGain.gain.setValueAtTime(0, t);
+      // Increased volume and added fade out
+      masterGain.gain.linearRampToValueAtTime(0.15, t + 0.01);
+      masterGain.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+
+      // Fundamental tone
+      const osc1 = ctx.createOscillator();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(800, t); // Main pitch
+      osc1.connect(masterGain);
+
+      // Harmonic tone (perfect fifth higher) for "bell" character
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1200, t);
+      osc2.connect(masterGain);
+
+      osc1.start(t);
+      osc2.start(t);
+
+      // Stop after decay
+      osc1.stop(t + 0.9);
+      osc2.stop(t + 1.5);
+
+      // Cleanup to prevent memory leaks in long sessions
+      setTimeout(() => {
+        masterGain.disconnect();
+      }, 1000);
+    } catch (err) {
+      console.error('Error playing sound:', err);
+    }
+  }, []);
 
   // Get Y.Array for chat messages
   const chatArray = doc.getArray<ChatMessage>('chat');
 
   // Sync messages from Yjs
   useEffect(() => {
-    const updateMessages = () => {
+    const updateMessages = (event?: Y.YArrayEvent<ChatMessage>) => {
       setMessages(chatArray.toArray());
+
+      // If this update was triggered by an event (not initial load)
+      if (event && event.changes.delta) {
+        // Check for inserted messages that are NOT from me
+        const hasNewIncomingMessage = event.changes.delta.some((item) => {
+          if (item.insert && Array.isArray(item.insert)) {
+            const insertedMessages = item.insert as ChatMessage[];
+            return insertedMessages.some((msg) => msg.name !== localName);
+          }
+          return false;
+        });
+
+        if (hasNewIncomingMessage) {
+          playPing();
+        }
+      }
     };
 
     updateMessages();
@@ -53,7 +149,7 @@ export function Chat() {
     return () => {
       chatArray.unobserve(updateMessages);
     };
-  }, [chatArray]);
+  }, [chatArray, localName, playPing]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
