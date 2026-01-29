@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSession } from '../lib/useSession';
+import { useTheme } from '../lib/useTheme';
 import { nanoid } from 'nanoid';
-import { Copy, Check, Trash2 } from 'lucide-react';
+import { Copy, Check, Trash2, Smile } from 'lucide-react';
+import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import {
   Dialog,
   DialogContent,
@@ -11,6 +13,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { Button } from './ui/button';
+import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
 import * as Y from 'yjs';
 
 interface ChatMessage {
@@ -32,13 +35,24 @@ interface ChatProps {
 }
 
 export function Chat({ soundEnabled = true }: ChatProps) {
-  const { doc, localName } = useSession();
+  const { doc, localName, localPeerId, participants } = useSession();
+  const { theme } = useTheme();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<ChatMessage | null>(
     null,
   );
+
+  // Emoji reaction state
+  const [reactions, setReactions] = useState<
+    Record<string, Record<string, Set<string>>>
+  >({});
+  const [reactionPickerOpen, setReactionPickerOpen] = useState<string | null>(
+    null,
+  );
+  const [inputEmojiPickerOpen, setInputEmojiPickerOpen] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -50,6 +64,113 @@ export function Chat({ soundEnabled = true }: ChatProps) {
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
+
+  // Get Y.Map for chat reactions
+  const chatReactions = doc.getMap<Y.Map<Y.Map<number>>>('chatReactions');
+
+  // Helper: Toggle a reaction for the current user
+  const toggleReaction = useCallback(
+    (messageId: string, emoji: string) => {
+      doc.transact(() => {
+        let msgMap = chatReactions.get(messageId);
+        if (!msgMap) {
+          msgMap = new Y.Map<Y.Map<number>>();
+          chatReactions.set(messageId, msgMap);
+        }
+
+        let emojiMap = msgMap.get(emoji);
+        if (!emojiMap) {
+          emojiMap = new Y.Map<number>();
+          msgMap.set(emoji, emojiMap);
+        }
+
+        if (emojiMap.has(localPeerId)) {
+          // Toggle off
+          emojiMap.delete(localPeerId);
+          // Cleanup empty maps
+          if (emojiMap.size === 0) msgMap.delete(emoji);
+          if (msgMap.size === 0) chatReactions.delete(messageId);
+        } else {
+          // Toggle on
+          emojiMap.set(localPeerId, 1);
+        }
+      });
+    },
+    [doc, chatReactions, localPeerId],
+  );
+
+  // Helper: Get user names for a reaction tooltip
+  const getUserNamesTooltip = useCallback(
+    (userIds: Set<string>) => {
+      const names = Array.from(userIds)
+        .map((userId) => {
+          if (userId === localPeerId) return localName;
+          const participant = participants.find((p) => p.peerId === userId);
+          return participant?.name || 'Unknown';
+        })
+        .join(', ');
+      return names;
+    },
+    [localPeerId, localName, participants],
+  );
+
+  // Helper: Insert emoji at cursor position in textarea
+  const insertEmojiAtCursor = useCallback(
+    (emoji: string) => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = input;
+
+      const newText = text.slice(0, start) + emoji + text.slice(end);
+      setInput(newText);
+
+      // Restore cursor position after emoji
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+        textarea.focus();
+      }, 0);
+    },
+    [input],
+  );
+
+  // Map theme to EmojiPicker theme type
+  const emojiTheme: EmojiTheme =
+    theme === 'dark' ? EmojiTheme.DARK : EmojiTheme.LIGHT;
+
+  // Sync reactions from Yjs
+  useEffect(() => {
+    const updateReactions = () => {
+      const reactionsData: Record<string, Record<string, Set<string>>> = {};
+
+      chatReactions.forEach((msgMap, messageId) => {
+        const emojiData: Record<string, Set<string>> = {};
+        msgMap.forEach((emojiMap, emoji) => {
+          const userIds = new Set<string>();
+          emojiMap.forEach((_, userId) => {
+            userIds.add(userId);
+          });
+          if (userIds.size > 0) {
+            emojiData[emoji] = userIds;
+          }
+        });
+        if (Object.keys(emojiData).length > 0) {
+          reactionsData[messageId] = emojiData;
+        }
+      });
+
+      setReactions(reactionsData);
+    };
+
+    updateReactions();
+    chatReactions.observeDeep(updateReactions);
+
+    return () => {
+      chatReactions.unobserveDeep(updateReactions);
+    };
+  }, [chatReactions]);
 
   // Unlock AudioContext on user interaction
   useEffect(() => {
@@ -88,7 +209,7 @@ export function Chat({ soundEnabled = true }: ChatProps) {
       masterGain.gain.setValueAtTime(0, t);
       // Increased volume and added fade out
       masterGain.gain.linearRampToValueAtTime(0.15, t + 0.01);
-      masterGain.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+      masterGain.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
 
       // Fundamental tone
       const osc1 = ctx.createOscillator();
@@ -333,6 +454,82 @@ export function Chat({ soundEnabled = true }: ChatProps) {
                 <p className="text-sm text-text wrap-break-word whitespace-pre-wrap">
                   {escapeHtml(msg.text)}
                 </p>
+
+                {/* Reactions row */}
+                {reactions[msg.id] &&
+                  Object.keys(reactions[msg.id]).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {Object.entries(reactions[msg.id]).map(
+                        ([emoji, userIds]) => (
+                          <button
+                            key={emoji}
+                            onClick={() => toggleReaction(msg.id, emoji)}
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                              userIds.has(localPeerId)
+                                ? 'bg-primary/10 border-primary text-primary'
+                                : 'bg-panel-2 border-border text-text-muted hover:border-primary/50'
+                            }`}
+                            aria-label={`${emoji} ${userIds.size} reaction${userIds.size > 1 ? 's' : ''}`}
+                            title={getUserNamesTooltip(userIds)}
+                          >
+                            <span>{emoji}</span>
+                            <span className="text-[10px] font-medium">
+                              {userIds.size}
+                            </span>
+                          </button>
+                        ),
+                      )}
+
+                      {/* Add reaction button */}
+                      <Popover
+                        open={reactionPickerOpen === msg.id}
+                        onOpenChange={(open) =>
+                          setReactionPickerOpen(open ? msg.id : null)
+                        }
+                      >
+                        <PopoverTrigger asChild>
+                          <button
+                            className="flex items-center justify-center w-6 h-6 rounded-full border border-dashed border-border
+                                     hover:border-primary text-text-muted hover:text-primary transition-colors
+                                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            aria-label="Add reaction"
+                          >
+                            <Smile className="w-3 h-3" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          {/* Quick reactions */}
+                          <div className="flex gap-1 p-2 border-b border-border">
+                            {['👍', '❤️', '😂', '🎉', '😮', '👀'].map(
+                              (emoji) => (
+                                <button
+                                  key={emoji}
+                                  onClick={() => {
+                                    toggleReaction(msg.id, emoji);
+                                    setReactionPickerOpen(null);
+                                  }}
+                                  className="text-xl hover:bg-panel-2 rounded p-1 transition-colors"
+                                  type="button"
+                                >
+                                  {emoji}
+                                </button>
+                              ),
+                            )}
+                          </div>
+                          {/* Emoji picker */}
+                          <EmojiPicker
+                            onEmojiClick={(emojiData) => {
+                              toggleReaction(msg.id, emojiData.emoji);
+                              setReactionPickerOpen(null);
+                            }}
+                            theme={emojiTheme}
+                            width={320}
+                            height={400}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  )}
               </div>
             );
           })
@@ -359,6 +556,36 @@ export function Chat({ soundEnabled = true }: ChatProps) {
           maxLength={2000}
           rows={1}
         />
+
+        {/* Emoji picker button */}
+        <Popover
+          open={inputEmojiPickerOpen}
+          onOpenChange={setInputEmojiPickerOpen}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg
+                         border border-border text-text-muted hover:text-primary hover:border-primary
+                         transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label="Insert emoji"
+            >
+              <Smile className="w-5 h-5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="end" side="top">
+            <EmojiPicker
+              onEmojiClick={(emojiData) => {
+                insertEmojiAtCursor(emojiData.emoji);
+                setInputEmojiPickerOpen(false);
+              }}
+              theme={emojiTheme}
+              width={320}
+              height={400}
+            />
+          </PopoverContent>
+        </Popover>
+
         <button
           type="submit"
           className="shrink-0 bg-primary text-white px-4 h-9.5 text-sm font-medium rounded-lg
