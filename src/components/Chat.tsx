@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
+import { debugLog } from '../lib/debug';
 import { nanoid } from 'nanoid';
 import { Copy, Check, Trash2, Smile, Plus } from 'lucide-react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
@@ -22,6 +23,8 @@ interface ChatMessage {
   name: string;
   text: string;
 }
+
+const RECENT_MESSAGE_WINDOW_MS = 5000;
 
 // Escape HTML to prevent XSS
 function escapeHtml(text: string): string {
@@ -251,11 +254,27 @@ export function Chat({ soundEnabled = true }: ChatProps) {
   const soundEnabledRef = useRef(soundEnabled);
   const audioContextRef = useRef<AudioContext | null>(null);
   const hasUnlockedAudio = useRef(false);
+  const pendingPingRef = useRef(false);
+  const unlockListenersAttachedRef = useRef(false);
+  const unlockHandlerRef = useRef<((event?: Event) => void) | null>(null);
+  const mountedAtRef = useRef<number | null>(null);
 
   // Update ref when prop changes
   useEffect(() => {
+    // console.log('Chat: soundEnabled prop changed to', soundEnabled);
     soundEnabledRef.current = soundEnabled;
+    if (!soundEnabled) {
+      pendingPingRef.current = false;
+      debugLog('ping', 'Sound disabled, cleared pending ping');
+    }
   }, [soundEnabled]);
+
+  useEffect(() => {
+    mountedAtRef.current = Date.now();
+  }, []);
+
+  // Debug log for ping
+  // console.log('Chat: render, soundEnabled=', soundEnabled);
 
   // Get Y.Map for chat reactions
   const chatReactions = doc.getMap<Y.Map<Y.Map<number>>>('chatReactions');
@@ -382,77 +401,177 @@ export function Chat({ soundEnabled = true }: ChatProps) {
     }
   }, [messages, chatReactions, doc]);
 
+  const playPingTone = useCallback((ctx: AudioContext) => {
+    const t = ctx.currentTime;
+    const masterGain = ctx.createGain();
+    masterGain.connect(ctx.destination);
+    masterGain.gain.setValueAtTime(0, t);
+    masterGain.gain.linearRampToValueAtTime(0.15, t + 0.01);
+    masterGain.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(800, t);
+    osc1.connect(masterGain);
+
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(1200, t);
+    osc2.connect(masterGain);
+
+    osc1.start(t);
+    osc2.start(t);
+
+    const stopTime = t + 1.2;
+    osc1.stop(stopTime);
+    osc2.stop(stopTime + 0.2);
+
+    const cleanupDelay = Math.max(0, (stopTime + 0.3 - ctx.currentTime) * 1000);
+    setTimeout(() => {
+      try {
+        osc1.disconnect();
+        osc2.disconnect();
+        masterGain.disconnect();
+      } catch {
+        // Ignore disconnect errors on teardown
+      }
+    }, cleanupDelay);
+  }, []);
+
+  const ensureAudioContext = useCallback((): AudioContext | null => {
+    if (audioContextRef.current?.state === 'closed') {
+      audioContextRef.current = null;
+      hasUnlockedAudio.current = false;
+    }
+    if (!audioContextRef.current) {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) return null;
+      audioContextRef.current = new AudioContextCtor();
+      debugLog('ping', 'AudioContext created', audioContextRef.current.state);
+    }
+    return audioContextRef.current;
+  }, []);
+
+  const resumeAudioContext = useCallback(async (ctx: AudioContext) => {
+    if (ctx.state === 'closed') return false;
+    if (ctx.state !== 'running') {
+      try {
+        await ctx.resume();
+      } catch (err) {
+        debugLog('ping', 'AudioContext resume failed', err);
+        return false;
+      }
+    }
+    return ctx.state === 'running';
+  }, []);
+
+  const removeUnlockListeners = useCallback(() => {
+    if (!unlockListenersAttachedRef.current) return;
+    const handler = unlockHandlerRef.current;
+    if (handler) {
+      window.removeEventListener('pointerdown', handler);
+      window.removeEventListener('keydown', handler);
+    }
+    unlockListenersAttachedRef.current = false;
+    debugLog('ping', 'Unlock listeners removed');
+  }, []);
+
+  const unlockAudioFromGesture = useCallback(async () => {
+    const ctx = ensureAudioContext();
+    debugLog('ping', 'Unlock gesture', {
+      soundEnabled: soundEnabledRef.current,
+      hasUnlocked: hasUnlockedAudio.current,
+      ctxExists: !!ctx,
+      ctxState: ctx?.state,
+      pending: pendingPingRef.current,
+    });
+
+    if (!ctx) return;
+
+    const resumed = await resumeAudioContext(ctx);
+    if (!resumed) return;
+
+    hasUnlockedAudio.current = true;
+
+    if (pendingPingRef.current) {
+      if (soundEnabledRef.current) {
+        pendingPingRef.current = false;
+        playPingTone(ctx);
+      } else {
+        pendingPingRef.current = false;
+      }
+    }
+
+    if (!pendingPingRef.current) {
+      removeUnlockListeners();
+    }
+  }, [ensureAudioContext, resumeAudioContext, playPingTone, removeUnlockListeners]);
+
+  const attachUnlockListeners = useCallback(() => {
+    if (unlockListenersAttachedRef.current) return;
+    const handler = unlockHandlerRef.current || unlockAudioFromGesture;
+    unlockHandlerRef.current = handler;
+    window.addEventListener('pointerdown', handler, {
+      passive: true,
+    });
+    window.addEventListener('keydown', handler);
+    unlockListenersAttachedRef.current = true;
+    debugLog('ping', 'Unlock listeners attached');
+  }, [unlockAudioFromGesture]);
+
   // Unlock AudioContext on user interaction
   useEffect(() => {
-    const unlock = () => {
-      if (!audioContextRef.current) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-          audioContextRef.current = new AudioContext();
-        }
-      }
-      if (audioContextRef.current?.state === 'suspended') {
-        audioContextRef.current.resume();
-      }
-      hasUnlockedAudio.current = true;
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
-
-    window.addEventListener('pointerdown', unlock);
-    window.addEventListener('keydown', unlock);
+    attachUnlockListeners();
     return () => {
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
+      removeUnlockListeners();
     };
-  }, []);
+  }, [attachUnlockListeners, removeUnlockListeners]);
 
   const playPing = useCallback(async () => {
-    if (!hasUnlockedAudio.current || !soundEnabledRef.current) return;
-    try {
-      const ctx = audioContextRef.current;
-      if (!ctx) return;
+    debugLog('ping', 'Ping requested', {
+      soundEnabled: soundEnabledRef.current,
+      hasUnlocked: hasUnlockedAudio.current,
+      ctxExists: !!audioContextRef.current,
+      ctxState: audioContextRef.current?.state,
+      pending: pendingPingRef.current,
+    });
 
-      // Always resume if suspended (browsers suspend after inactivity)
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
-
-      const t = ctx.currentTime;
-      const masterGain = ctx.createGain();
-      masterGain.connect(ctx.destination);
-      masterGain.gain.setValueAtTime(0, t);
-      // Increased volume and added fade out
-      masterGain.gain.linearRampToValueAtTime(0.15, t + 0.01);
-      masterGain.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
-
-      // Fundamental tone
-      const osc1 = ctx.createOscillator();
-      osc1.type = 'sine';
-      osc1.frequency.setValueAtTime(800, t); // Main pitch
-      osc1.connect(masterGain);
-
-      // Harmonic tone (perfect fifth higher) for "bell" character
-      const osc2 = ctx.createOscillator();
-      osc2.type = 'sine';
-      osc2.frequency.setValueAtTime(1200, t);
-      osc2.connect(masterGain);
-
-      osc1.start(t);
-      osc2.start(t);
-
-      // Stop after decay
-      osc1.stop(t + 0.9);
-      osc2.stop(t + 1.5);
-
-      // Cleanup to prevent memory leaks in long sessions
-      setTimeout(() => {
-        masterGain.disconnect();
-      }, 1000);
-    } catch (err) {
-      console.error('Error playing sound:', err);
+    if (!soundEnabledRef.current) {
+      pendingPingRef.current = false;
+      return;
     }
-  }, []);
+
+    if (!hasUnlockedAudio.current) {
+      pendingPingRef.current = true;
+      attachUnlockListeners();
+      debugLog('ping', 'Queued ping: audio not unlocked');
+      return;
+    }
+
+    const ctx = ensureAudioContext();
+    if (!ctx) return;
+
+    if (ctx.state === 'closed') {
+      audioContextRef.current = null;
+      hasUnlockedAudio.current = false;
+      pendingPingRef.current = true;
+      attachUnlockListeners();
+      debugLog('ping', 'AudioContext closed, queued ping');
+      return;
+    }
+
+    const resumed = await resumeAudioContext(ctx);
+    if (!resumed) {
+      hasUnlockedAudio.current = false;
+      pendingPingRef.current = true;
+      attachUnlockListeners();
+      debugLog('ping', 'Resume blocked, queued ping');
+      return;
+    }
+
+    pendingPingRef.current = false;
+    playPingTone(ctx);
+  }, [attachUnlockListeners, ensureAudioContext, resumeAudioContext, playPingTone]);
 
   // Get Y.Array for chat messages
   const chatArray = doc.getArray<ChatMessage>('chat');
@@ -460,22 +579,53 @@ export function Chat({ soundEnabled = true }: ChatProps) {
   // Sync messages from Yjs
   useEffect(() => {
     const updateMessages = (event?: Y.YArrayEvent<ChatMessage>) => {
-      setMessages(chatArray.toArray());
+      const nextMessages = chatArray.toArray();
+      setMessages(nextMessages);
 
-      // If this update was triggered by an event (not initial load)
-      if (event && event.changes.delta) {
-        // Check for inserted messages that are NOT from me
-        const hasNewIncomingMessage = event.changes.delta.some((item) => {
-          if (item.insert && Array.isArray(item.insert)) {
-            const insertedMessages = item.insert as ChatMessage[];
-            return insertedMessages.some((msg) => msg.name !== localName);
-          }
-          return false;
+      if (!event || !event.changes.delta) {
+        debugLog('ping', 'Chat sync (no event)', {
+          count: nextMessages.length,
         });
+        return;
+      }
 
-        if (hasNewIncomingMessage) {
-          playPing();
+      debugLog('ping', 'Chat delta', {
+        local: event.transaction.local,
+        delta: event.changes.delta,
+      });
+
+      if (event.transaction.local) return;
+
+      if (mountedAtRef.current === null) {
+        mountedAtRef.current = Date.now();
+      }
+
+      const insertedMessages: ChatMessage[] = [];
+      event.changes.delta.forEach((item) => {
+        if (item.insert && Array.isArray(item.insert)) {
+          insertedMessages.push(...(item.insert as ChatMessage[]));
         }
+      });
+
+      if (insertedMessages.length === 0) return;
+
+      const incomingMessages = insertedMessages.filter(
+        (msg) => msg.name !== localName,
+      );
+      const mountedAt = mountedAtRef.current ?? Date.now();
+      const recentIncoming = incomingMessages.filter(
+        (msg) => msg.ts >= mountedAt - RECENT_MESSAGE_WINDOW_MS,
+      );
+
+      debugLog('ping', 'Chat inserts', {
+        inserted: insertedMessages.length,
+        incoming: incomingMessages.length,
+        recentIncoming: recentIncoming.length,
+        mountedAt,
+      });
+
+      if (recentIncoming.length > 0) {
+        playPing();
       }
     };
 
