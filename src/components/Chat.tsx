@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { nanoid } from 'nanoid';
-import { Copy, Check, Trash2, Smile } from 'lucide-react';
+import { Copy, Check, Trash2, Smile, Plus } from 'lucide-react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import {
   Dialog,
@@ -30,6 +30,194 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+// Memoized message row component to prevent unnecessary re-renders
+interface MessageRowProps {
+  msg: ChatMessage;
+  isOwn: boolean;
+  localName: string;
+  localPeerId: string;
+  reactions: Record<string, Set<string>>;
+  copiedId: string | null;
+  reactionPickerOpen: string | null;
+  fullPickerOpen: string | null;
+  emojiTheme: EmojiTheme;
+  onCopy: (msg: ChatMessage) => void;
+  onDelete: (msg: ChatMessage) => void;
+  onToggleReaction: (messageId: string, emoji: string) => void;
+  onSetReactionPickerOpen: (id: string | null) => void;
+  onSetFullPickerOpen: (id: string | null) => void;
+  getUserNamesTooltip: (userIds: Set<string>) => string;
+}
+
+function MessageRow({
+  msg,
+  isOwn,
+  reactions,
+  copiedId,
+  reactionPickerOpen,
+  fullPickerOpen,
+  emojiTheme,
+  onCopy,
+  onDelete,
+  onToggleReaction,
+  onSetReactionPickerOpen,
+  onSetFullPickerOpen,
+  getUserNamesTooltip,
+  localPeerId,
+}: MessageRowProps) {
+  return (
+    <div className="group relative bg-panel-2 rounded-lg px-3 py-2">
+      <div className="flex justify-between items-center mb-1">
+        <span className="text-xs font-semibold text-primary">
+          {escapeHtml(msg.name)}
+        </span>
+        <div className="flex items-center gap-1">
+          {/* Reaction button - always visible on mobile, hover on desktop */}
+          <Popover
+            open={reactionPickerOpen === msg.id}
+            onOpenChange={(open) => {
+              onSetReactionPickerOpen(open ? msg.id : null);
+              if (!open) onSetFullPickerOpen(null);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                className="copy-btn w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center rounded text-text-muted
+                           hover:text-text hover:bg-panel transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100
+                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-label="Add reaction"
+                title="Add reaction"
+              >
+                <Smile className="w-4 h-4 sm:w-3 sm:h-3" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-auto p-0"
+              align="start"
+              onOpenAutoFocus={(e) => e.preventDefault()}
+            >
+              {fullPickerOpen === msg.id ? (
+                /* Full emoji picker - only render when actually open */
+                <div className="relative">
+                  <button
+                    onClick={() => onSetFullPickerOpen(null)}
+                    className="absolute top-2 left-2 z-10 w-6 h-6 flex items-center justify-center
+                             bg-panel-2 hover:bg-panel rounded text-text-muted hover:text-text
+                             transition-colors"
+                    aria-label="Back to quick reactions"
+                  >
+                    ←
+                  </button>
+                  <EmojiPicker
+                    onEmojiClick={(emojiData) => {
+                      onToggleReaction(msg.id, emojiData.emoji);
+                      onSetReactionPickerOpen(null);
+                      onSetFullPickerOpen(null);
+                    }}
+                    theme={emojiTheme}
+                    width={320}
+                    height={400}
+                  />
+                </div>
+              ) : (
+                /* Quick reactions bar */
+                <div className="flex gap-1 p-2">
+                  {['👍', '❤️', '🙏', '😭', '😍', '🤬'].map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => {
+                        onToggleReaction(msg.id, emoji);
+                        onSetReactionPickerOpen(null);
+                      }}
+                      className="text-xl hover:bg-panel-2 rounded p-1 transition-colors"
+                      type="button"
+                      aria-label={`React with ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => onSetFullPickerOpen(msg.id)}
+                    className="w-8 h-8 flex items-center justify-center rounded border border-dashed
+                             border-border hover:border-primary text-text-muted hover:text-primary
+                             transition-colors"
+                    type="button"
+                    aria-label="More emojis"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+
+          <button
+            className="copy-btn w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center rounded text-text-muted
+                       hover:text-text hover:bg-panel transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={() => onCopy(msg)}
+            aria-label="Copy message"
+            title="Copy message"
+          >
+            {copiedId === msg.id ? (
+              <Check className="w-4 h-4 sm:w-3 sm:h-3 text-success" />
+            ) : (
+              <Copy className="w-4 h-4 sm:w-3 sm:h-3" />
+            )}
+          </button>
+          {isOwn && (
+            <button
+              className="copy-btn w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center rounded text-text-muted
+                         hover:text-danger hover:bg-danger/10 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+              onClick={() => onDelete(msg)}
+              aria-label="Delete message"
+              title="Delete message"
+            >
+              <Trash2 className="w-4 h-4 sm:w-3 sm:h-3" />
+            </button>
+          )}
+          <span className="text-[10px] text-text-muted">
+            {new Date(msg.ts).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </span>
+        </div>
+      </div>
+      <p className="text-sm text-text wrap-break-word whitespace-pre-wrap">
+        {escapeHtml(msg.text)}
+      </p>
+
+      {/* Reactions row -*/}
+      {reactions && Object.keys(reactions).length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {Object.entries(reactions).map(([emoji, userIds]) => {
+            const hasReacted = userIds.has(localPeerId);
+            const tooltip = getUserNamesTooltip(userIds);
+            return (
+              <button
+                key={emoji}
+                onClick={() => onToggleReaction(msg.id, emoji)}
+                className={`reaction-pill-bg flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                  hasReacted
+                    ? 'border-slate-400/40 text-text ring-0.5 ring-slate-50 dark:ring-slate-500/50'
+                    : 'border-slate-300/20 dark:border-slate-600/30 text-text-muted hover:border-slate-400/50 dark:hover:border-slate-500/40'
+                }`}
+                aria-label={`${emoji} ${userIds.size} reaction${userIds.size > 1 ? 's' : ''}${hasReacted ? ', you reacted' : ''}`}
+                title={tooltip}
+              >
+                <span className="text-[14px]">{emoji}</span>
+                <span className="text-[12px] font-medium">{userIds.size}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ChatProps {
   soundEnabled?: boolean;
 }
@@ -48,9 +236,13 @@ export function Chat({ soundEnabled = true }: ChatProps) {
   const [reactions, setReactions] = useState<
     Record<string, Record<string, Set<string>>>
   >({});
+
+  // Stable empty object to prevent memo breaking
+  const EMPTY_REACTIONS = useMemo<Record<string, Set<string>>>(() => ({}), []);
   const [reactionPickerOpen, setReactionPickerOpen] = useState<string | null>(
     null,
   );
+  const [fullPickerOpen, setFullPickerOpen] = useState<string | null>(null);
   const [inputEmojiPickerOpen, setInputEmojiPickerOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -172,6 +364,24 @@ export function Chat({ soundEnabled = true }: ChatProps) {
     };
   }, [chatReactions]);
 
+  // Cleanup orphaned reactions (when messages are deleted)
+  useEffect(() => {
+    const validMessageIds = new Set(messages.map((m) => m.id));
+    const orphanedIds: string[] = [];
+
+    chatReactions.forEach((_, messageId) => {
+      if (!validMessageIds.has(messageId)) {
+        orphanedIds.push(messageId);
+      }
+    });
+
+    if (orphanedIds.length > 0) {
+      doc.transact(() => {
+        orphanedIds.forEach((id) => chatReactions.delete(id));
+      });
+    }
+  }, [messages, chatReactions, doc]);
+
   // Unlock AudioContext on user interaction
   useEffect(() => {
     const unlock = () => {
@@ -197,11 +407,16 @@ export function Chat({ soundEnabled = true }: ChatProps) {
     };
   }, []);
 
-  const playPing = useCallback(() => {
+  const playPing = useCallback(async () => {
     if (!hasUnlockedAudio.current || !soundEnabledRef.current) return;
     try {
       const ctx = audioContextRef.current;
       if (!ctx) return;
+
+      // Always resume if suspended (browsers suspend after inactivity)
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
 
       const t = ctx.currentTime;
       const masterGain = ctx.createGain();
@@ -318,11 +533,16 @@ export function Chat({ soundEnabled = true }: ChatProps) {
       .findIndex((m) => m.id === messageToDelete.id);
     if (index !== -1) {
       doc.transact(() => {
+        // Delete the message
         chatArray.delete(index, 1);
+        // Also delete its reactions to avoid orphaned data
+        if (chatReactions.has(messageToDelete.id)) {
+          chatReactions.delete(messageToDelete.id);
+        }
       });
     }
     setMessageToDelete(null);
-  }, [chatArray, doc, localName, messageToDelete]);
+  }, [chatArray, chatReactions, doc, localName, messageToDelete]);
 
   // Handle keyboard input for multi-line messages
   const handleKeyDown = useCallback(
@@ -407,130 +627,26 @@ export function Chat({ soundEnabled = true }: ChatProps) {
         ) : (
           messages.map((msg) => {
             const isOwn = msg.name === localName;
+            const msgReactions = reactions[msg.id] || EMPTY_REACTIONS;
             return (
-              <div
+              <MessageRow
                 key={msg.id}
-                className="group relative bg-panel-2 rounded-lg px-3 py-2"
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs font-semibold text-primary">
-                    {escapeHtml(msg.name)}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      className="copy-btn w-5 h-5 flex items-center justify-center rounded text-text-muted
-                                 hover:text-text hover:bg-panel transition-colors
-                                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      onClick={() => handleCopy(msg)}
-                      aria-label="Copy message"
-                      title="Copy message"
-                    >
-                      {copiedId === msg.id ? (
-                        <Check className="w-3 h-3 text-success" />
-                      ) : (
-                        <Copy className="w-3 h-3" />
-                      )}
-                    </button>
-                    {isOwn && (
-                      <button
-                        className="copy-btn w-5 h-5 flex items-center justify-center rounded text-text-muted
-                                   hover:text-danger hover:bg-danger/10 transition-colors
-                                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
-                        onClick={() => setMessageToDelete(msg)}
-                        aria-label="Delete message"
-                        title="Delete message"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    )}
-                    <span className="text-[10px] text-text-muted">
-                      {new Date(msg.ts).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-sm text-text wrap-break-word whitespace-pre-wrap">
-                  {escapeHtml(msg.text)}
-                </p>
-
-                {/* Reactions row */}
-                {reactions[msg.id] &&
-                  Object.keys(reactions[msg.id]).length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {Object.entries(reactions[msg.id]).map(
-                        ([emoji, userIds]) => (
-                          <button
-                            key={emoji}
-                            onClick={() => toggleReaction(msg.id, emoji)}
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                              userIds.has(localPeerId)
-                                ? 'bg-primary/10 border-primary text-primary'
-                                : 'bg-panel-2 border-border text-text-muted hover:border-primary/50'
-                            }`}
-                            aria-label={`${emoji} ${userIds.size} reaction${userIds.size > 1 ? 's' : ''}`}
-                            title={getUserNamesTooltip(userIds)}
-                          >
-                            <span>{emoji}</span>
-                            <span className="text-[10px] font-medium">
-                              {userIds.size}
-                            </span>
-                          </button>
-                        ),
-                      )}
-
-                      {/* Add reaction button */}
-                      <Popover
-                        open={reactionPickerOpen === msg.id}
-                        onOpenChange={(open) =>
-                          setReactionPickerOpen(open ? msg.id : null)
-                        }
-                      >
-                        <PopoverTrigger asChild>
-                          <button
-                            className="flex items-center justify-center w-6 h-6 rounded-full border border-dashed border-border
-                                     hover:border-primary text-text-muted hover:text-primary transition-colors
-                                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                            aria-label="Add reaction"
-                          >
-                            <Smile className="w-3 h-3" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          {/* Quick reactions */}
-                          <div className="flex gap-1 p-2 border-b border-border">
-                            {['👍', '❤️', '😂', '🎉', '😮', '👀'].map(
-                              (emoji) => (
-                                <button
-                                  key={emoji}
-                                  onClick={() => {
-                                    toggleReaction(msg.id, emoji);
-                                    setReactionPickerOpen(null);
-                                  }}
-                                  className="text-xl hover:bg-panel-2 rounded p-1 transition-colors"
-                                  type="button"
-                                >
-                                  {emoji}
-                                </button>
-                              ),
-                            )}
-                          </div>
-                          {/* Emoji picker */}
-                          <EmojiPicker
-                            onEmojiClick={(emojiData) => {
-                              toggleReaction(msg.id, emojiData.emoji);
-                              setReactionPickerOpen(null);
-                            }}
-                            theme={emojiTheme}
-                            width={320}
-                            height={400}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                  )}
-              </div>
+                msg={msg}
+                isOwn={isOwn}
+                localName={localName}
+                localPeerId={localPeerId}
+                reactions={msgReactions}
+                copiedId={copiedId}
+                reactionPickerOpen={reactionPickerOpen}
+                fullPickerOpen={fullPickerOpen}
+                emojiTheme={emojiTheme}
+                onCopy={handleCopy}
+                onDelete={setMessageToDelete}
+                onToggleReaction={toggleReaction}
+                onSetReactionPickerOpen={setReactionPickerOpen}
+                onSetFullPickerOpen={setFullPickerOpen}
+                getUserNamesTooltip={getUserNamesTooltip}
+              />
             );
           })
         )}
@@ -574,15 +690,17 @@ export function Chat({ soundEnabled = true }: ChatProps) {
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="end" side="top">
-            <EmojiPicker
-              onEmojiClick={(emojiData) => {
-                insertEmojiAtCursor(emojiData.emoji);
-                setInputEmojiPickerOpen(false);
-              }}
-              theme={emojiTheme}
-              width={320}
-              height={400}
-            />
+            {inputEmojiPickerOpen && (
+              <EmojiPicker
+                onEmojiClick={(emojiData) => {
+                  insertEmojiAtCursor(emojiData.emoji);
+                  setInputEmojiPickerOpen(false);
+                }}
+                theme={emojiTheme}
+                width={320}
+                height={400}
+              />
+            )}
           </PopoverContent>
         </Popover>
 

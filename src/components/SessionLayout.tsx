@@ -488,54 +488,67 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   Messages
                 </span>
               </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
-                  <h2 className="text-sm font-semibold text-text">Messages</h2>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="flex items-center gap-1.5"
-                      title="Message sound"
-                    >
-                      <Bell className="w-3.5 h-3.5 text-text-muted" />
-                      <Switch
-                        checked={messageSoundEnabled}
-                        onCheckedChange={setMessageSoundEnabled}
-                        className="scale-75 origin-right"
-                      />
-                    </div>
-                    <button
-                      className="w-6 h-6 rounded flex items-center justify-center text-text-muted
-                             hover:text-text hover:bg-panel-2 transition-colors
-                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      onClick={() => setSidebarCollapsed(true)}
-                      title="Collapse sidebar"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
+            ) : null}
+
+            {/* Keep Chat mounted to preserve state - hide with CSS when collapsed */}
+            <div
+              className={
+                sidebarCollapsed ? 'hidden' : 'flex flex-col flex-1 min-h-0'
+              }
+            >
+              <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
+                <h2 className="text-sm font-semibold text-text">Messages</h2>
+                <div className="flex items-center gap-2">
+                  <div
+                    className="flex items-center gap-1.5"
+                    title="Message sound"
+                  >
+                    <Bell className="w-3.5 h-3.5 text-text-muted" />
+                    <Switch
+                      checked={messageSoundEnabled}
+                      onCheckedChange={setMessageSoundEnabled}
+                      className="scale-75 origin-right"
+                    />
                   </div>
+                  <button
+                    className="w-6 h-6 rounded flex items-center justify-center text-text-muted
+                           hover:text-text hover:bg-panel-2 transition-colors
+                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    onClick={() => setSidebarCollapsed(true)}
+                    title="Collapse sidebar"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                 </div>
-                <Participants />
-                <Chat
-                  soundEnabled={
-                    messageSoundEnabled && (!isMobile || !mobileDrawerOpen)
-                  }
-                />
-              </>
-            )}
+              </div>
+              <Participants />
+              <Chat
+                soundEnabled={
+                  messageSoundEnabled && (!isMobile || !mobileDrawerOpen)
+                }
+              />
+            </div>
           </aside>
         </div>
 
-        {/* Mobile Drawer Overlay */}
-        {isMobile && mobileDrawerOpen && (
+        {/* Mobile Drawer - always mounted, use transforms for show/hide to preserve state */}
+        {isMobile && (
           <>
             {/* Backdrop */}
             <div
-              className="fixed inset-0 bg-black/50 z-40 animate-fade-in"
+              className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-200 ${
+                mobileDrawerOpen
+                  ? 'opacity-100'
+                  : 'opacity-0 pointer-events-none'
+              }`}
               onClick={() => setMobileDrawerOpen(false)}
             />
             {/* Drawer Panel */}
-            <div className="fixed inset-y-0 right-0 w-[85%] max-w-sm bg-panel border-l border-border z-50 flex flex-col animate-slide-in-right">
+            <div
+              className={`fixed inset-y-0 right-0 w-[85%] max-w-sm bg-panel border-l border-border z-50 flex flex-col transition-transform duration-300 ${
+                mobileDrawerOpen ? 'translate-x-0' : 'translate-x-full'
+              }`}
+            >
               <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
                 <h2 className="text-sm font-semibold text-text">Messages</h2>
                 <div className="flex items-center gap-3">

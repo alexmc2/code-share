@@ -344,3 +344,11 @@
     opacity: 1;
   }
 }
+
+/* Reaction pill background - force pure white in light mode */
+.reaction-pill-bg {
+  background-color: #f8fafc;
+}
+.dark .reaction-pill-bg {
+  background-color: rgba(30, 41, 59, 0.2);
+}
