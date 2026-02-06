@@ -28,7 +28,6 @@ export function useDrawing(
   currentOpRef: React.RefObject<DrawOp | null>,
 ): DrawingState {
   const isDrawing = useRef(false);
-  const startPoint = useRef<Point>({ x: 0, y: 0 });
 
   // Get mouse/touch position relative to canvas, accounting for viewport offset
   const getPosition = useCallback(
@@ -65,7 +64,6 @@ export function useDrawing(
     (e: React.PointerEvent) => {
       const pos = getPosition(e);
       isDrawing.current = true;
-      startPoint.current = pos;
 
       if (tool === 'fill') {
         // Fill operation
