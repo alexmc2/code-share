@@ -5,7 +5,7 @@ import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { type ConnectionStatus } from '../lib/session';
 import { CodeEditor } from './CodeEditor';
-import { Whiteboard } from './Whiteboard';
+import { Whiteboard } from './whiteboard';
 import { Participants } from './Participants';
 import { Chat } from './Chat';
 import {
@@ -31,7 +31,7 @@ import {
 } from './ui/dialog';
 import { Switch } from './ui/switch';
 
-type Tab = 'code' | 'diagram';
+type Tab = 'code' | 'whiteboard';
 
 // Sidebar resize constraints
 const MIN_SIDEBAR_WIDTH = 280;
@@ -55,7 +55,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'code';
     const stored = sessionStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-    return stored === 'code' || stored === 'diagram' ? stored : 'code';
+    return stored === 'code' || stored === 'whiteboard' ? stored : 'code';
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
@@ -241,7 +241,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
             <div className="hidden md:flex flex-1 justify-center min-w-0">
               <div className="flex bg-panel-2 rounded-lg p-1">
                 <button
-                  className={`px-6 py-2 text-sm font-medium rounded-md transition-all
+                  className={`px-12 py-2 text-sm font-medium rounded-md transition-all
                   ${
                     activeTab === 'code'
                       ? 'bg-primary text-white shadow-sm'
@@ -250,19 +250,19 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-panel-2`}
                   onClick={() => setActiveTab('code')}
                 >
-                  Code
+                  CODE
                 </button>
                 <button
                   className={`px-6 py-2 text-sm font-medium rounded-md transition-all
                   ${
-                    activeTab === 'diagram'
+                    activeTab === 'whiteboard'
                       ? 'bg-primary text-white shadow-sm'
                       : 'text-text-muted hover:text-text'
                   }
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-panel-2`}
-                  onClick={() => setActiveTab('diagram')}
+                  onClick={() => setActiveTab('whiteboard')}
                 >
-                  Diagram
+                  WHITEBOARD
                 </button>
               </div>
             </div>
@@ -401,7 +401,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
           <div className="flex md:hidden justify-center px-2 pb-2">
             <div className="flex bg-panel-2 rounded-lg p-0.5">
               <button
-                className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all
+                className={`px-12 py-1.5 text-xs font-medium rounded-md transition-all
                 ${
                   activeTab === 'code'
                     ? 'bg-primary text-white shadow-sm'
@@ -410,19 +410,19 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
                 onClick={() => setActiveTab('code')}
               >
-                Code
+                CODE
               </button>
               <button
                 className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all
                 ${
-                  activeTab === 'diagram'
+                  activeTab === 'whiteboard'
                     ? 'bg-primary text-white shadow-sm'
                     : 'text-text-muted hover:text-text'
                 }
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
-                onClick={() => setActiveTab('diagram')}
+                onClick={() => setActiveTab('whiteboard')}
               >
-                Diagram
+                WHITEBOARD
               </button>
             </div>
           </div>
@@ -447,7 +447,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
             </div>
             <div
               className={
-                activeTab === 'diagram'
+                activeTab === 'whiteboard'
                   ? 'flex-1 flex min-w-0 overflow-hidden'
                   : 'hidden'
               }
