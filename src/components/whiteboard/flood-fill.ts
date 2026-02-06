@@ -1,3 +1,20 @@
+// Cached 1x1 canvas for CSS color → RGBA conversion
+let colorParseCanvas: HTMLCanvasElement | null = null;
+let colorParseCtx: CanvasRenderingContext2D | null = null;
+
+function parseColorToRGBA(color: string): Uint8ClampedArray {
+  if (!colorParseCanvas) {
+    colorParseCanvas = document.createElement('canvas');
+    colorParseCanvas.width = 1;
+    colorParseCanvas.height = 1;
+    colorParseCtx = colorParseCanvas.getContext('2d')!;
+  }
+  colorParseCtx!.clearRect(0, 0, 1, 1);
+  colorParseCtx!.fillStyle = color;
+  colorParseCtx!.fillRect(0, 0, 1, 1);
+  return colorParseCtx!.getImageData(0, 0, 1, 1).data;
+}
+
 /**
  * Flood fill that keeps strokes and fills on separate layers to avoid anti-aliasing artifacts.
  */
@@ -16,13 +33,7 @@ export function floodFillWithBoundary(
   const y = Math.floor(Math.max(0, Math.min(height - 1, startY)));
 
   // Convert fill color to RGBA
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = 1;
-  tempCanvas.height = 1;
-  const tempCtx = tempCanvas.getContext('2d')!;
-  tempCtx.fillStyle = fillColor;
-  tempCtx.fillRect(0, 0, 1, 1);
-  const fillRGBA = tempCtx.getImageData(0, 0, 1, 1).data;
+  const fillRGBA = parseColorToRGBA(fillColor);
 
   // Get fill canvas image data
   const fillImageData = fillCtx.getImageData(0, 0, width, height);

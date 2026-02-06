@@ -31,9 +31,6 @@ export function useWhiteboardCanvas(
   const visibleStrokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const fillCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Track if world canvas needs rebuild
-  const worldNeedsRebuildRef = useRef(true);
-
   // rAF scheduling
   const rafIdRef = useRef<number | null>(null);
 
@@ -177,8 +174,6 @@ export function useWhiteboardCanvas(
     // Order: fillCanvas (bottom) -> visibleStrokeCanvas (top)
     worldCtx.drawImage(fillCanvas, 0, 0);
     worldCtx.drawImage(visibleStrokeCanvas, 0, 0);
-
-    worldNeedsRebuildRef.current = false;
   }, [opsArray, initOffscreenCanvases, getBackgroundColor]);
 
   // Renders the viewport efficiently using physical pixels to prevent seams
@@ -291,19 +286,11 @@ export function useWhiteboardCanvas(
     });
   }, [renderViewport]);
 
-  // Rebuild world canvas on data changes
+  // Rebuild world canvas when data or theme changes
   useEffect(() => {
-    worldNeedsRebuildRef.current = true;
     rebuildWorldCanvas();
     scheduleViewportRender();
-  }, [opsArray, rebuildWorldCanvas, scheduleViewportRender]);
-
-  // Re-render on theme change
-  useEffect(() => {
-    worldNeedsRebuildRef.current = true;
-    rebuildWorldCanvas();
-    scheduleViewportRender();
-  }, [isDark, rebuildWorldCanvas, scheduleViewportRender]);
+  }, [opsArray, isDark, rebuildWorldCanvas, scheduleViewportRender]);
 
   // Handle resize
   useLayoutEffect(() => {
@@ -338,7 +325,6 @@ export function useWhiteboardCanvas(
   // Subscribe to Yjs changes
   useEffect(() => {
     const observer = () => {
-      worldNeedsRebuildRef.current = true;
       rebuildWorldCanvas();
       scheduleViewportRender();
     };

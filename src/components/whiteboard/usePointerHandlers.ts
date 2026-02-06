@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { Point, PointerState } from './types';
+import type { DrawOp, Point, PointerState } from './types';
 import { MIN_SCALE, MAX_SCALE } from './types';
 
 export interface PointerHandlers {
@@ -30,7 +30,7 @@ export function usePointerHandlers(
   getTouchDistance: (points: PointerState[]) => number,
   // Drawing state
   isDrawingRef: React.RefObject<boolean>,
-  currentOpRef: React.RefObject<unknown>,
+  currentOpRef: React.RefObject<DrawOp | null>,
   // Drawing handlers
   handleStart: (e: React.PointerEvent) => void,
   handleMove: (e: React.PointerEvent) => void,

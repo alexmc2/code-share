@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useSession } from '../../lib/useSession';
 import { useTheme } from '../../lib/useTheme';
 import type { Tool, DrawOp } from './types';
@@ -115,13 +115,10 @@ export function Whiteboard() {
   );
 
   // Generate custom round cursor for pen and eraser tools
-  const brushCursor = useMemo(() => {
+  const brushCursor = (() => {
     if (tool !== 'eraser' && tool !== 'pen') return 'crosshair';
 
-    const screenSize = Math.max(
-      8,
-      Math.min(128, size * viewport.transformRef.current.scale),
-    );
+    const screenSize = Math.max(8, Math.min(128, size));
     const halfSize = screenSize / 2;
 
     const svg = `
@@ -133,7 +130,7 @@ export function Whiteboard() {
 
     const dataUrl = `data:image/svg+xml;base64,${btoa(svg)}`;
     return `url(${dataUrl}) ${halfSize} ${halfSize}, crosshair`;
-  }, [tool, size, viewport.transformRef]);
+  })();
 
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
