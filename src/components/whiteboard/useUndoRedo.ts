@@ -66,9 +66,9 @@ export function useUndoRedo(
           opsArray.delete(index, 1);
           opsArray.insert(index, [previousOp]);
         });
+        redoStack.current.push(entry);
+        setCanRedo(true);
       }
-      redoStack.current.push(entry);
-      setCanRedo(true);
     } else if (action === 'add') {
       const index = ops.findIndex((op) => op.id === entry.op.id);
       if (index !== -1) {
@@ -108,9 +108,9 @@ export function useUndoRedo(
             opsArray.push([entry.op]);
           }
         });
+        redoStack.current.push(entry);
+        setCanRedo(true);
       }
-      redoStack.current.push(entry);
-      setCanRedo(true);
     }
 
     setCanUndo(undoStack.current.length > 0);
@@ -125,6 +125,7 @@ export function useUndoRedo(
 
     const action = getAction(entry);
     const ops = opsArray.toArray();
+    let applied = false;
 
     if (action === 'transform') {
       const previousOp = entry.previousOp;
@@ -136,6 +137,7 @@ export function useUndoRedo(
           opsArray.delete(index, 1);
           opsArray.insert(index, [entry.op]);
         });
+        applied = true;
       }
     } else if (action === 'add') {
       const exists = ops.some((op) => op.id === entry.op.id);
@@ -153,6 +155,7 @@ export function useUndoRedo(
         } else {
           opsArray.push([entry.op]);
         }
+        applied = true;
       }
     } else if (action === 'delete') {
       const index = ops.findIndex((op) => op.id === entry.op.id);
@@ -167,11 +170,14 @@ export function useUndoRedo(
           }
           opsArray.delete(index, 1);
         });
+        applied = true;
       }
     }
 
-    undoStack.current.push(entry);
-    setCanUndo(true);
+    if (applied) {
+      undoStack.current.push(entry);
+      setCanUndo(true);
+    }
     setCanRedo(redoStack.current.length > 0);
   }, [doc, opsArray, imageMap, getAction]);
 
