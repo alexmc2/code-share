@@ -255,7 +255,8 @@ export function Whiteboard() {
   useEffect(() => {
     const handleDelete = (e: KeyboardEvent) => {
       if (isTypingInEditableField(e.target)) return;
-
+      if (!containerRef.current || containerRef.current.offsetParent === null)
+        return;
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       if (!getSelectedOpId()) return;
 
@@ -319,6 +320,8 @@ export function Whiteboard() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== ' ' || e.repeat) return;
       if (isTypingInEditableField(e.target)) return;
+      if (!containerRef.current || containerRef.current.offsetParent === null)
+        return;
       e.preventDefault();
       isSpaceHeldRef.current = true;
       setIsSpaceHeld(true);
@@ -500,6 +503,10 @@ export function Whiteboard() {
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable
       ) {
+        return;
+      }
+      // Skip when whiteboard tab is not visible
+      if (!containerRef.current || containerRef.current.offsetParent === null) {
         return;
       }
 
