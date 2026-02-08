@@ -153,10 +153,26 @@ export function useImageSelect(
 
       const dxToMidX = Math.abs(worldPos.x - midX);
       const dyToMidY = Math.abs(worldPos.y - midY);
-      if (dxToMidX <= handleWorldRadius && Math.abs(worldPos.y - minY) <= handleWorldRadius) return 'n';
-      if (dxToMidX <= handleWorldRadius && Math.abs(worldPos.y - maxY) <= handleWorldRadius) return 's';
-      if (dyToMidY <= handleWorldRadius && Math.abs(worldPos.x - minX) <= handleWorldRadius) return 'w';
-      if (dyToMidY <= handleWorldRadius && Math.abs(worldPos.x - maxX) <= handleWorldRadius) return 'e';
+      if (
+        dxToMidX <= handleWorldRadius &&
+        Math.abs(worldPos.y - minY) <= handleWorldRadius
+      )
+        return 'n';
+      if (
+        dxToMidX <= handleWorldRadius &&
+        Math.abs(worldPos.y - maxY) <= handleWorldRadius
+      )
+        return 's';
+      if (
+        dyToMidY <= handleWorldRadius &&
+        Math.abs(worldPos.x - minX) <= handleWorldRadius
+      )
+        return 'w';
+      if (
+        dyToMidY <= handleWorldRadius &&
+        Math.abs(worldPos.x - maxX) <= handleWorldRadius
+      )
+        return 'e';
 
       return null;
     },
@@ -375,10 +391,10 @@ export function useImageSelect(
           const aspect = (orig.x2! - orig.x1!) / (orig.y2! - orig.y1!);
           const minWidth = Math.max(MIN_IMAGE_SIZE, MIN_IMAGE_SIZE * aspect);
 
-          let anchorX = orig.x1!;
-          let anchorY = orig.y1!;
-          let dirX: 1 | -1 = 1;
-          let dirY: 1 | -1 = 1;
+          let anchorX: number;
+          let anchorY: number;
+          let dirX: 1 | -1;
+          let dirY: 1 | -1;
 
           switch (drag.handle) {
             case 'nw':
@@ -416,10 +432,8 @@ export function useImageSelect(
           const widthFromHeight = heightFromPointer * aspect;
           const targetWidth = Math.max(widthFromPointer, widthFromHeight);
 
-          const maxWidthByX =
-            dirX === 1 ? CANVAS_WIDTH - anchorX : anchorX;
-          const maxHeightByY =
-            dirY === 1 ? CANVAS_HEIGHT - anchorY : anchorY;
+          const maxWidthByX = dirX === 1 ? CANVAS_WIDTH - anchorX : anchorX;
+          const maxHeightByY = dirY === 1 ? CANVAS_HEIGHT - anchorY : anchorY;
           const maxWidthByY = maxHeightByY * aspect;
           const maxWidth = Math.min(maxWidthByX, maxWidthByY);
 
@@ -507,7 +521,7 @@ export function useImageSelect(
 
         opsArray.doc?.transact(() => {
           opsArray.delete(index, 1);
-          opsArray.push([newOp]);
+          opsArray.insert(index, [newOp]);
         });
 
         undoStackRef.current.push({
@@ -608,13 +622,27 @@ export function useImageSelect(
       }
 
       if (!selection.selectionBounds) return;
-      const minX = Math.min(selection.selectionBounds.x1, selection.selectionBounds.x2);
-      const maxX = Math.max(selection.selectionBounds.x1, selection.selectionBounds.x2);
-      const minY = Math.min(selection.selectionBounds.y1, selection.selectionBounds.y2);
-      const maxY = Math.max(selection.selectionBounds.y1, selection.selectionBounds.y2);
+      const minX = Math.min(
+        selection.selectionBounds.x1,
+        selection.selectionBounds.x2,
+      );
+      const maxX = Math.max(
+        selection.selectionBounds.x1,
+        selection.selectionBounds.x2,
+      );
+      const minY = Math.min(
+        selection.selectionBounds.y1,
+        selection.selectionBounds.y2,
+      );
+      const maxY = Math.max(
+        selection.selectionBounds.y1,
+        selection.selectionBounds.y2,
+      );
 
-      const toPhysX = (wx: number) => (wx - transform.x) * transform.scale * dpr;
-      const toPhysY = (wy: number) => (wy - transform.y) * transform.scale * dpr;
+      const toPhysX = (wx: number) =>
+        (wx - transform.x) * transform.scale * dpr;
+      const toPhysY = (wy: number) =>
+        (wy - transform.y) * transform.scale * dpr;
 
       const px1 = toPhysX(minX);
       const py1 = toPhysY(minY);

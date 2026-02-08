@@ -64,7 +64,7 @@ export function useUndoRedo(
       if (index !== -1 && previousOp) {
         doc.transact(() => {
           opsArray.delete(index, 1);
-          opsArray.push([previousOp]);
+          opsArray.insert(index, [previousOp]);
         });
       }
       redoStack.current.push(entry);
@@ -72,14 +72,16 @@ export function useUndoRedo(
     } else if (action === 'add') {
       const index = ops.findIndex((op) => op.id === entry.op.id);
       if (index !== -1) {
-        if (entry.op.type === 'image' && entry.op.imageId && imageMap) {
-          const imageData = imageMap.get(entry.op.imageId);
-          if (imageData) {
-            entry.imageData = new Uint8Array(imageData);
+        doc.transact(() => {
+          if (entry.op.type === 'image' && entry.op.imageId && imageMap) {
+            const imageData = imageMap.get(entry.op.imageId);
+            if (imageData) {
+              entry.imageData = new Uint8Array(imageData);
+            }
+            imageMap.delete(entry.op.imageId);
           }
-          imageMap.delete(entry.op.imageId);
-        }
-        opsArray.delete(index, 1);
+          opsArray.delete(index, 1);
+        });
         redoStack.current.push(entry);
         setCanRedo(true);
       }
@@ -132,7 +134,7 @@ export function useUndoRedo(
       if (index !== -1) {
         doc.transact(() => {
           opsArray.delete(index, 1);
-          opsArray.push([entry.op]);
+          opsArray.insert(index, [entry.op]);
         });
       }
     } else if (action === 'add') {
@@ -155,14 +157,16 @@ export function useUndoRedo(
     } else if (action === 'delete') {
       const index = ops.findIndex((op) => op.id === entry.op.id);
       if (index !== -1) {
-        if (entry.op.type === 'image' && entry.op.imageId && imageMap) {
-          const imageData = imageMap.get(entry.op.imageId);
-          if (imageData) {
-            entry.imageData = new Uint8Array(imageData);
+        doc.transact(() => {
+          if (entry.op.type === 'image' && entry.op.imageId && imageMap) {
+            const imageData = imageMap.get(entry.op.imageId);
+            if (imageData) {
+              entry.imageData = new Uint8Array(imageData);
+            }
+            imageMap.delete(entry.op.imageId);
           }
-          imageMap.delete(entry.op.imageId);
-        }
-        opsArray.delete(index, 1);
+          opsArray.delete(index, 1);
+        });
       }
     }
 

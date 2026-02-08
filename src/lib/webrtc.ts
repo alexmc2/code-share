@@ -348,7 +348,12 @@ export class WebRTCManager {
     if (!channel || channel.readyState !== 'open') return;
 
     if (binaryData.length <= CHUNK_THRESHOLD) {
-      channel.send(binaryData.buffer as ArrayBuffer);
+      channel.send(
+        binaryData.buffer.slice(
+          binaryData.byteOffset,
+          binaryData.byteOffset + binaryData.byteLength,
+        ) as ArrayBuffer,
+      );
     } else {
       // Chunk the message
       const chunks = encodeChunkedMessage(binaryData);
@@ -358,7 +363,12 @@ export class WebRTCManager {
         peerConn.peerId,
       );
       for (const chunk of chunks) {
-        channel.send(chunk.buffer as ArrayBuffer);
+        channel.send(
+          chunk.buffer.slice(
+            chunk.byteOffset,
+            chunk.byteOffset + chunk.byteLength,
+          ) as ArrayBuffer,
+        );
       }
     }
   }
@@ -372,6 +382,16 @@ export class WebRTCManager {
     const messageId = view.getUint32(1);
     const chunkIndex = view.getUint16(5);
     const totalChunks = view.getUint16(7);
+
+    // Validate chunk header values to prevent sparse arrays / crashes
+    if (totalChunks === 0 || chunkIndex >= totalChunks) {
+      debugLog(
+        'webrtc',
+        `Invalid chunk header from ${peerConn.peerId}: index=${chunkIndex} total=${totalChunks}, dropping`,
+      );
+      return;
+    }
+
     const payload = data.subarray(CHUNK_HEADER_SIZE);
 
     let assembly = peerConn.chunkAssemblies.get(messageId);

@@ -34,6 +34,7 @@ export function useWhiteboardCanvas(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   containerRef: React.RefObject<HTMLDivElement | null>,
   getCachedImage?: (imageId: string) => ImageBitmap | undefined,
+  imagesOnTop?: boolean,
 ): WhiteboardCanvasState {
   // Offscreen canvases
   const worldCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -140,6 +141,9 @@ export function useWhiteboardCanvas(
     const deletedIds = new Set<string>();
     const ops = opsArray.toArray();
 
+    // Collect image ops for deferred rendering in "images on top" mode
+    const deferredImages: DrawOp[] = [];
+
     for (const op of ops) {
       // Handle legacy erase ops: add eraseIds to deleted set
       if (op.type === 'erase' && op.eraseIds) {
@@ -156,8 +160,16 @@ export function useWhiteboardCanvas(
         if (suppressedImageOpIdRef.current === op.id) {
           continue;
         }
-        // Draw image on the world canvas directly (above fills, below later strokes is fine
-        // since images composite on top after the fill layer anyway)
+
+        if (imagesOnTop) {
+          // Defer image drawing to after all strokes/fills
+          deferredImages.push(op);
+          continue;
+        }
+
+        // "Respect order" mode: composite fill canvas so far, then draw image
+        // This ensures fills done before this image appear below it,
+        // and strokes/fills done after will appear above it.
         if (
           op.imageId &&
           op.x1 !== undefined &&
@@ -168,7 +180,6 @@ export function useWhiteboardCanvas(
         ) {
           const bitmap = getCachedImage(op.imageId);
           if (bitmap) {
-            // Draw on the visible stroke canvas so it composites above fills
             visibleStrokeCtx.drawImage(
               bitmap,
               op.x1,
@@ -220,6 +231,20 @@ export function useWhiteboardCanvas(
             CANVAS_WIDTH,
             CANVAS_HEIGHT,
           );
+
+          // In "respect order" mode, snapshot fill canvas before the fill so we
+          // can extract only the newly-filled pixels and composite them onto
+          // visibleStrokeCanvas at this z-position.
+          let preFillData: ImageData | null = null;
+          if (!imagesOnTop) {
+            preFillData = fillCtx.getImageData(
+              0,
+              0,
+              CANVAS_WIDTH,
+              CANVAS_HEIGHT,
+            );
+          }
+
           floodFillWithBoundary(
             fillCtx,
             currentStrokeData,
@@ -227,11 +252,97 @@ export function useWhiteboardCanvas(
             op.y1,
             op.colour,
           );
+
+          if (!imagesOnTop && preFillData) {
+            const postFillData = fillCtx.getImageData(
+              0,
+              0,
+              CANVAS_WIDTH,
+              CANVAS_HEIGHT,
+            );
+            const pre = preFillData.data;
+            const post = postFillData.data;
+
+            // Build a delta image with only the pixels changed by this fill
+            const deltaData = fillCtx.createImageData(
+              CANVAS_WIDTH,
+              CANVAS_HEIGHT,
+            );
+            const dst = deltaData.data;
+
+            for (let i = 0; i < pre.length; i += 4) {
+              if (
+                pre[i] !== post[i] ||
+                pre[i + 1] !== post[i + 1] ||
+                pre[i + 2] !== post[i + 2] ||
+                pre[i + 3] !== post[i + 3]
+              ) {
+                dst[i] = post[i];
+                dst[i + 1] = post[i + 1];
+                dst[i + 2] = post[i + 2];
+                dst[i + 3] = post[i + 3];
+              }
+              // Unchanged pixels remain transparent (alpha = 0)
+            }
+
+            // Draw only the changed fill pixels onto visibleStrokeCanvas
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = CANVAS_WIDTH;
+            tempCanvas.height = CANVAS_HEIGHT;
+            const tempCtx = tempCanvas.getContext('2d')!;
+            tempCtx.putImageData(deltaData, 0, 0);
+            visibleStrokeCtx.drawImage(tempCanvas, 0, 0);
+          }
         }
       } else {
         // Draw stroke to both stroke canvases
         drawStrokeOp(boundaryStrokeCtx, op);
         drawStrokeOp(visibleStrokeCtx, op);
+      }
+    }
+
+    // Draw deferred images on top (only in "images on top" mode)
+    for (const op of deferredImages) {
+      if (
+        op.imageId &&
+        op.x1 !== undefined &&
+        op.y1 !== undefined &&
+        op.x2 !== undefined &&
+        op.y2 !== undefined &&
+        getCachedImage
+      ) {
+        const bitmap = getCachedImage(op.imageId);
+        if (bitmap) {
+          visibleStrokeCtx.drawImage(
+            bitmap,
+            op.x1,
+            op.y1,
+            op.x2 - op.x1,
+            op.y2 - op.y1,
+          );
+        } else {
+          visibleStrokeCtx.save();
+          visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.15)';
+          visibleStrokeCtx.fillRect(op.x1, op.y1, op.x2 - op.x1, op.y2 - op.y1);
+          visibleStrokeCtx.strokeStyle = 'rgba(128, 128, 128, 0.4)';
+          visibleStrokeCtx.lineWidth = 2;
+          visibleStrokeCtx.strokeRect(
+            op.x1,
+            op.y1,
+            op.x2 - op.x1,
+            op.y2 - op.y1,
+          );
+          visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.6)';
+          visibleStrokeCtx.font = '14px sans-serif';
+          visibleStrokeCtx.textAlign = 'center';
+          visibleStrokeCtx.textBaseline = 'middle';
+          visibleStrokeCtx.fillText(
+            'Loading…',
+            (op.x1 + op.x2) / 2,
+            (op.y1 + op.y2) / 2,
+          );
+          visibleStrokeCtx.restore();
+        }
       }
     }
 
@@ -246,7 +357,13 @@ export function useWhiteboardCanvas(
     // Order: fillCanvas (bottom) -> visibleStrokeCanvas (top)
     worldCtx.drawImage(fillCanvas, 0, 0);
     worldCtx.drawImage(visibleStrokeCanvas, 0, 0);
-  }, [opsArray, initOffscreenCanvases, getBackgroundColor, getCachedImage]);
+  }, [
+    opsArray,
+    initOffscreenCanvases,
+    getBackgroundColor,
+    getCachedImage,
+    imagesOnTop,
+  ]);
 
   // Renders the viewport efficiently using physical pixels to prevent seams
   const renderViewport = useCallback(() => {

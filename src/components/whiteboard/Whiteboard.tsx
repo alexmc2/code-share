@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import * as Y from 'yjs';
 import { useSession } from '../../lib/useSession';
 import { useTheme } from '../../lib/useTheme';
 import type { Tool, DrawOp, Point } from './types';
@@ -64,6 +65,27 @@ export function Whiteboard() {
 
   // Get Y.Array for drawing ops
   const opsArray = doc.getArray<DrawOp>('whiteboard');
+
+  // CRDT-synced whiteboard settings (shared across all peers)
+  const settingsMap = doc.getMap<boolean>('whiteboard-settings');
+  const [imagesOnTop, setImagesOnTop] = useState<boolean>(() => {
+    return settingsMap.get('imagesOnTop') ?? true;
+  });
+
+  useEffect(() => {
+    const observer = (event: Y.YMapEvent<boolean>) => {
+      if (event.keysChanged.has('imagesOnTop')) {
+        setImagesOnTop(settingsMap.get('imagesOnTop') ?? true);
+      }
+    };
+    settingsMap.observe(observer);
+    return () => settingsMap.unobserve(observer);
+  }, [settingsMap]);
+
+  const toggleImagesOnTop = useCallback(() => {
+    const next = !(settingsMap.get('imagesOnTop') ?? true);
+    settingsMap.set('imagesOnTop', next);
+  }, [settingsMap]);
 
   // Shared refs lifted here to break circular deps between hooks
   const canvasCssWidthRef = useRef(0);
@@ -131,6 +153,7 @@ export function Whiteboard() {
     canvasRef,
     containerRef,
     images.getCachedImage,
+    imagesOnTop,
   );
   const {
     scheduleViewportRender,
@@ -483,7 +506,7 @@ export function Whiteboard() {
 
   // Dynamic cursor for select tool (move/resize feedback)
   const handleMouseMoveForCursor = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.PointerEvent) => {
       if (tool !== 'select') return;
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -587,6 +610,7 @@ export function Whiteboard() {
         canUndo={canUndo}
         canRedo={canRedo}
         isMobile={isMobile}
+        imagesOnTop={imagesOnTop}
         setTool={setTool}
         setColour={setColour}
         setSize={setSize}
@@ -595,6 +619,7 @@ export function Whiteboard() {
         handleRedo={handleRedo}
         handleClear={handleClear}
         onImageUpload={handleImageUpload}
+        onToggleImagesOnTop={toggleImagesOnTop}
       />
 
       {/* Canvas container */}

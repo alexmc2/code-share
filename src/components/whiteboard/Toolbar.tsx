@@ -11,7 +11,7 @@ import {
   DialogClose,
 } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { ImagePlus, MousePointer2 } from 'lucide-react';
+import { ImagePlus, MousePointer2, Layers, Layers2 } from 'lucide-react';
 import type { Tool } from './types';
 import { COLOURS, SIZES, ERASER_SIZES } from './types';
 
@@ -23,6 +23,7 @@ interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   isMobile: boolean;
+  imagesOnTop: boolean;
   setTool: (tool: Tool) => void;
   setColour: (colour: string) => void;
   setSize: (size: number) => void;
@@ -31,6 +32,7 @@ interface ToolbarProps {
   handleRedo: () => void;
   handleClear: () => void;
   onImageUpload?: (file: File) => void;
+  onToggleImagesOnTop?: () => void;
 }
 
 const toolButtonClass = (isActive: boolean) =>
@@ -50,6 +52,7 @@ export function Toolbar({
   canUndo,
   canRedo,
   isMobile,
+  imagesOnTop,
   setTool,
   setColour,
   setSize,
@@ -58,6 +61,7 @@ export function Toolbar({
   handleRedo,
   handleClear,
   onImageUpload,
+  onToggleImagesOnTop,
 }: ToolbarProps) {
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
   const [zoomInput, setZoomInput] = useState(`${zoomPercent}`);
@@ -147,7 +151,7 @@ export function Toolbar({
         </button>
       </div>
 
-      {/* Image upload */}
+      {/* Image upload & layer ordering */}
       <div className="flex gap-2 items-center pr-3 border-r border-border">
         <button
           className={`${toolButtonClass(false)}`}
@@ -155,6 +159,21 @@ export function Toolbar({
           title="Upload Image"
         >
           <ImagePlus className="w-4 h-4" />
+        </button>
+        <button
+          className={toolButtonClass(false)}
+          onClick={onToggleImagesOnTop}
+          title={
+            imagesOnTop
+              ? 'Images on top (click to respect draw order)'
+              : 'Respecting draw order (click for images on top)'
+          }
+        >
+          {imagesOnTop ? (
+            <Layers className="w-4 h-4" />
+          ) : (
+            <Layers2 className="w-4 h-4" />
+          )}
         </button>
         <input
           ref={fileInputRef}
