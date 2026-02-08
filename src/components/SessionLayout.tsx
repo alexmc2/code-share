@@ -283,6 +283,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   size="icon"
                   className="h-8 w-8"
                   onClick={() => setNewSessionDialogOpen(true)}
+                  aria-label="Start new session"
                 >
                   <svg
                     width="20"
@@ -367,6 +368,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   size="icon"
                   className="h-8 w-8"
                   onClick={() => setLeaveSessionDialogOpen(true)}
+                  aria-label="Leave session"
                 >
                   <svg
                     width="20"
@@ -548,6 +550,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                            hover:text-text hover:bg-panel-2 transition-colors
                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       onClick={() => setSidebarCollapsed(true)}
+                      aria-label="Collapse sidebar"
                     >
                       <ChevronRight className="h-4 w-4" />
                     </button>
@@ -591,6 +594,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                       checked={messageSoundEnabled}
                       onCheckedChange={setMessageSoundEnabled}
                       className="scale-75 origin-right"
+                      aria-label="Message sound"
                     />
                   </div>
                   <button
