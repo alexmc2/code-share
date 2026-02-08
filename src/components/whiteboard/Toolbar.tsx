@@ -103,49 +103,49 @@ export function Toolbar({
         <button
           className={toolButtonClass(tool === 'select')}
           onClick={() => setTool('select')}
-          title="Select (move/resize images)"
+          title="Select (V) - move/resize images"
         >
           <MousePointer2 className="w-4 h-4" />
         </button>
         <button
           className={toolButtonClass(tool === 'pen')}
           onClick={() => setTool('pen')}
-          title="Pen"
+          title="Pen (B)"
         >
           ✏️
         </button>
         <button
           className={toolButtonClass(tool === 'line')}
           onClick={() => setTool('line')}
-          title="Line"
+          title="Line (S cycles shapes)"
         >
           ╱
         </button>
         <button
           className={toolButtonClass(tool === 'rect')}
           onClick={() => setTool('rect')}
-          title="Rectangle"
+          title="Rectangle (S cycles shapes)"
         >
           ▢
         </button>
         <button
           className={toolButtonClass(tool === 'circle')}
           onClick={() => setTool('circle')}
-          title="Circle"
+          title="Circle (S cycles shapes)"
         >
           ◯
         </button>
         <button
           className={toolButtonClass(tool === 'eraser')}
           onClick={() => setTool('eraser')}
-          title="Eraser (select and delete)"
+          title="Eraser (E)"
         >
           🧹
         </button>
         <button
           className={toolButtonClass(tool === 'fill')}
           onClick={() => setTool('fill')}
-          title="Fill Bucket"
+          title="Fill Bucket (G)"
         >
           🪣
         </button>
