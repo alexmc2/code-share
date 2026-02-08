@@ -30,6 +30,15 @@ function normalizeWheelDelta(
   return delta; // pixel units
 }
 
+function isTypingInEditableField(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.isContentEditable
+  );
+}
+
 export function Whiteboard() {
   const { doc } = useSession();
   const { isDark } = useTheme();
@@ -220,14 +229,7 @@ export function Whiteboard() {
 
   useEffect(() => {
     const handleDelete = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      ) {
-        return;
-      }
+      if (isTypingInEditableField(e.target)) return;
 
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       if (!getSelectedOpId()) return;
@@ -241,6 +243,45 @@ export function Whiteboard() {
     return () => document.removeEventListener('keydown', handleDelete);
   }, [getSelectedOpId, deleteSelectedImage]);
 
+  // Tool shortcuts: V=select, B=pen, E=eraser, G=fill, S=cycle shape tools
+  useEffect(() => {
+    const handleToolShortcuts = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.repeat) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTypingInEditableField(e.target)) return;
+      if (!containerRef.current || containerRef.current.offsetParent === null) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+      if (key === 'v') {
+        e.preventDefault();
+        setTool('select');
+      } else if (key === 'b') {
+        e.preventDefault();
+        setTool('pen');
+      } else if (key === 'e') {
+        e.preventDefault();
+        setTool('eraser');
+      } else if (key === 'g') {
+        e.preventDefault();
+        setTool('fill');
+      } else if (key === 's') {
+        e.preventDefault();
+        if (tool === 'line') {
+          setTool('rect');
+        } else if (tool === 'rect') {
+          setTool('circle');
+        } else {
+          setTool('line');
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleToolShortcuts);
+    return () => document.removeEventListener('keydown', handleToolShortcuts);
+  }, [setTool, tool]);
+
   // --- Spacebar + drag pan ---
   const isSpaceHeldRef = useRef(false);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
@@ -251,14 +292,7 @@ export function Whiteboard() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== ' ' || e.repeat) return;
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      ) {
-        return;
-      }
+      if (isTypingInEditableField(e.target)) return;
       e.preventDefault();
       isSpaceHeldRef.current = true;
       setIsSpaceHeld(true);
