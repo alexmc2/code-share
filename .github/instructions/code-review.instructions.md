@@ -50,6 +50,7 @@ excludeAgent: 'coding-agent'
 
 # Client ↔ Server contract
 
+
 - Socket.IO event names and payload shapes (see `SignallingEvents` in `signalling.ts` and the server's `io.on` handlers) are a shared contract — changes must land on both sides simultaneously.
 - If either side adds/renames/removes an event, flag it and verify the counterpart is updated.
 
