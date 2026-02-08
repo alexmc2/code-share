@@ -42,11 +42,14 @@ export interface DrawOp {
   imageId?: string; // Key into Y.Map('whiteboard-images')
 }
 
-// Undo/redo entry — previousOp is set when undoing a move/resize
+export type UndoAction = 'add' | 'transform' | 'delete';
+
 export interface UndoEntry {
+  action?: UndoAction;
   op: DrawOp;
   previousOp?: DrawOp;
   imageData?: Uint8Array; // Stored for redo of image placement
+  index?: number; // Optional original index for restoration (e.g., delete undo)
 }
 
 export const COLOURS = [

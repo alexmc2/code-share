@@ -9,9 +9,18 @@ import {
 import { floodFillWithBoundary } from './flood-fill';
 import type * as Y from 'yjs';
 
+type OverlayRenderer = (
+  ctx: CanvasRenderingContext2D,
+  transform: { x: number; y: number; scale: number },
+  dpr: number,
+) => void;
+
 export interface WhiteboardCanvasState {
   getBackgroundColor: () => string;
   scheduleViewportRender: () => void;
+  rebuildAndRender: () => void;
+  setOverlayRenderer: (renderer: OverlayRenderer | null) => void;
+  setSuppressedImageOpId: (opId: string | null) => void;
 }
 
 export function useWhiteboardCanvas(
@@ -34,6 +43,8 @@ export function useWhiteboardCanvas(
 
   // rAF scheduling
   const rafIdRef = useRef<number | null>(null);
+  const overlayRendererRef = useRef<OverlayRenderer | null>(null);
+  const suppressedImageOpIdRef = useRef<string | null>(null);
 
   // Get canvas context
   const getContext = useCallback(() => {
@@ -141,6 +152,9 @@ export function useWhiteboardCanvas(
       if (deletedIds.has(op.id)) continue;
 
       if (op.type === 'image') {
+        if (suppressedImageOpIdRef.current === op.id) {
+          continue;
+        }
         // Draw image on the world canvas directly (above fills, below later strokes is fine
         // since images composite on top after the fill layer anyway)
         if (
@@ -252,9 +266,10 @@ export function useWhiteboardCanvas(
     // Clear canvas (background already in worldCanvas)
     ctx.clearRect(0, 0, physWidth, physHeight);
 
-    // Source coordinates in world space
-    const srcX = Math.floor(Math.max(0, transformRef.current.x));
-    const srcY = Math.floor(Math.max(0, transformRef.current.y));
+    // Source coordinates in world space (keep fractional values so committed
+    // content and live previews use the same transform and do not "snap" on release)
+    const srcX = Math.max(0, transformRef.current.x);
+    const srcY = Math.max(0, transformRef.current.y);
 
     // Calculate how much of the world we're viewing
     const cssWidth = physWidth / dpr;
@@ -325,6 +340,8 @@ export function useWhiteboardCanvas(
 
       ctx.restore();
     }
+
+    overlayRendererRef.current?.(ctx, transformRef.current, dpr);
   }, [getContext, getBackgroundColor, transformRef, currentOpRef, canvasRef]);
 
   // Schedule viewport render
@@ -337,6 +354,30 @@ export function useWhiteboardCanvas(
       rafIdRef.current = null;
     });
   }, [renderViewport]);
+
+  const rebuildAndRender = useCallback(() => {
+    rebuildWorldCanvas();
+    scheduleViewportRender();
+  }, [rebuildWorldCanvas, scheduleViewportRender]);
+
+  const setOverlayRenderer = useCallback<
+    WhiteboardCanvasState['setOverlayRenderer']
+  >((renderer) => {
+    overlayRendererRef.current = renderer;
+  }, []);
+
+  const setSuppressedImageOpId = useCallback<
+    WhiteboardCanvasState['setSuppressedImageOpId']
+  >(
+    (opId) => {
+      if (suppressedImageOpIdRef.current === opId) {
+        return;
+      }
+      suppressedImageOpIdRef.current = opId;
+      rebuildAndRender();
+    },
+    [rebuildAndRender],
+  );
 
   // Rebuild world canvas when data or theme changes
   useEffect(() => {
@@ -399,5 +440,8 @@ export function useWhiteboardCanvas(
   return {
     getBackgroundColor,
     scheduleViewportRender,
+    rebuildAndRender,
+    setOverlayRenderer,
+    setSuppressedImageOpId,
   };
 }

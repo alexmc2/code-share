@@ -1,5 +1,5 @@
 const MAX_DIMENSION = 1920;
-const WEBP_QUALITY = 0.8;
+const WEBP_QUALITY = 0.9;
 const MAX_INPUT_SIZE = 10 * 1024 * 1024; // 10 MB
 
 export interface ProcessedImage {

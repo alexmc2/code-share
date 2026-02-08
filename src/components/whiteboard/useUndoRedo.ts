@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import type { DrawOp, UndoEntry } from './types';
+import type { DrawOp, UndoAction, UndoEntry } from './types';
 import type * as Y from 'yjs';
 import type { Doc } from 'yjs';
 
@@ -25,6 +25,12 @@ export function useUndoRedo(
   const undoStack = useRef<UndoEntry[]>([]);
   const redoStack = useRef<UndoEntry[]>([]);
 
+  const getAction = useCallback((entry: UndoEntry): UndoAction => {
+    if (entry.action) return entry.action;
+    if (entry.previousOp) return 'transform';
+    return 'add';
+  }, []);
+
   // Clear canvas
   const handleClear = useCallback(() => {
     doc.transact(() => {
@@ -49,28 +55,27 @@ export function useUndoRedo(
     const entry = undoStack.current.pop();
     if (!entry) return;
 
+    const action = getAction(entry);
     const ops = opsArray.toArray();
 
-    if (entry.previousOp) {
-      // This was a move/resize — delete edited op, re-insert original
+    if (action === 'transform') {
+      const previousOp = entry.previousOp;
       const index = ops.findIndex((op) => op.id === entry.op.id);
-      if (index !== -1) {
+      if (index !== -1 && previousOp) {
         doc.transact(() => {
           opsArray.delete(index, 1);
-          opsArray.push([entry.previousOp!]);
+          opsArray.push([previousOp]);
         });
       }
       redoStack.current.push(entry);
       setCanRedo(true);
-    } else {
-      // Standard draw/image op — find and remove
+    } else if (action === 'add') {
       const index = ops.findIndex((op) => op.id === entry.op.id);
       if (index !== -1) {
-        // If it's an image op, save the image data for redo and remove from Y.Map
         if (entry.op.type === 'image' && entry.op.imageId && imageMap) {
           const imageData = imageMap.get(entry.op.imageId);
           if (imageData) {
-            entry.imageData = imageData;
+            entry.imageData = new Uint8Array(imageData);
           }
           imageMap.delete(entry.op.imageId);
         }
@@ -78,10 +83,36 @@ export function useUndoRedo(
         redoStack.current.push(entry);
         setCanRedo(true);
       }
+    } else if (action === 'delete') {
+      const exists = ops.some((op) => op.id === entry.op.id);
+      if (!exists) {
+        doc.transact(() => {
+          if (
+            entry.op.type === 'image' &&
+            entry.op.imageId &&
+            entry.imageData &&
+            imageMap
+          ) {
+            imageMap.set(entry.op.imageId, entry.imageData);
+          }
+
+          if (
+            typeof entry.index === 'number' &&
+            entry.index >= 0 &&
+            entry.index <= opsArray.length
+          ) {
+            opsArray.insert(entry.index, [entry.op]);
+          } else {
+            opsArray.push([entry.op]);
+          }
+        });
+      }
+      redoStack.current.push(entry);
+      setCanRedo(true);
     }
 
     setCanUndo(undoStack.current.length > 0);
-  }, [doc, opsArray, imageMap]);
+  }, [doc, opsArray, imageMap, getAction]);
 
   // Redo
   const handleRedo = useCallback(() => {
@@ -90,37 +121,55 @@ export function useUndoRedo(
     const entry = redoStack.current.pop();
     if (!entry) return;
 
-    if (entry.previousOp) {
-      // Move/resize redo — delete the restored original, re-insert the moved version
-      const ops = opsArray.toArray();
-      const index = ops.findIndex((op) => op.id === entry.previousOp!.id);
+    const action = getAction(entry);
+    const ops = opsArray.toArray();
+
+    if (action === 'transform') {
+      const previousOp = entry.previousOp;
+      const index = previousOp
+        ? ops.findIndex((op) => op.id === previousOp.id)
+        : -1;
       if (index !== -1) {
         doc.transact(() => {
           opsArray.delete(index, 1);
           opsArray.push([entry.op]);
         });
       }
-    } else {
-      // Standard draw/image op redo — re-push
-      if (
-        entry.op.type === 'image' &&
-        entry.op.imageId &&
-        entry.imageData &&
-        imageMap
-      ) {
-        doc.transact(() => {
-          imageMap!.set(entry.op.imageId!, entry.imageData!);
+    } else if (action === 'add') {
+      const exists = ops.some((op) => op.id === entry.op.id);
+      if (!exists) {
+        if (
+          entry.op.type === 'image' &&
+          entry.op.imageId &&
+          entry.imageData &&
+          imageMap
+        ) {
+          doc.transact(() => {
+            imageMap.set(entry.op.imageId!, entry.imageData!);
+            opsArray.push([entry.op]);
+          });
+        } else {
           opsArray.push([entry.op]);
-        });
-      } else {
-        opsArray.push([entry.op]);
+        }
+      }
+    } else if (action === 'delete') {
+      const index = ops.findIndex((op) => op.id === entry.op.id);
+      if (index !== -1) {
+        if (entry.op.type === 'image' && entry.op.imageId && imageMap) {
+          const imageData = imageMap.get(entry.op.imageId);
+          if (imageData) {
+            entry.imageData = new Uint8Array(imageData);
+          }
+          imageMap.delete(entry.op.imageId);
+        }
+        opsArray.delete(index, 1);
       }
     }
 
     undoStack.current.push(entry);
     setCanUndo(true);
     setCanRedo(redoStack.current.length > 0);
-  }, [doc, opsArray, imageMap]);
+  }, [doc, opsArray, imageMap, getAction]);
 
   // Keyboard shortcuts for undo/redo
   useEffect(() => {

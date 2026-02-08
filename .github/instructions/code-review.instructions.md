@@ -17,6 +17,18 @@ excludeAgent: 'coding-agent'
 - Flag breaking changes to signalling events, room membership logic, or host election behavior.
 - Be explicit about risk level and impacted user flows in review comments.
 
+# Whiteboard image review checklist
+
+- Treat image state as two coupled sources of truth: `Y.Array('whiteboard')` draw ops and `Y.Map('whiteboard-images')` binary data.
+- For image add/delete/redo paths, verify `DrawOp` and image blob map updates happen in the same `doc.transact(...)` block to avoid dangling refs.
+- Verify image deletion is individually undoable/redoable:
+  - Delete key removes only the selected image op.
+  - Undo restores both the image op and image bytes.
+  - Redo removes both again.
+- Verify move/resize remains undoable/redoable independently from add/delete actions.
+- Flag any change where image placeholders can remain stale because viewport render runs without world-canvas rebuild after image decode completion.
+- Flag UI regressions where move/resize has no in-progress visual feedback (preview + selection handles must render during drag).
+
 # Client ↔ Server contract
 
 - Socket.IO event names and payload shapes (see `SignallingEvents` in `signalling.ts` and the server's `io.on` handlers) are a shared contract — changes must land on both sides simultaneously.

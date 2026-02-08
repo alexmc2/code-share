@@ -20,10 +20,14 @@ export function Whiteboard() {
   const [tool, setToolRaw] = useState<Tool>('pen');
   const [colour, setColour] = useState('#ffffff');
   const [size, setSize] = useState(5);
+  const [selectCursor, setSelectCursor] = useState('default');
 
   // Wrap setTool to adjust size when switching to/from eraser
   const setTool = useCallback((newTool: Tool) => {
     setToolRaw(newTool);
+    if (newTool === 'select') {
+      setSelectCursor('default');
+    }
     if (newTool === 'eraser') {
       setSize(ERASER_SIZES[1].value);
     } else if (newTool !== 'select') {
@@ -79,19 +83,31 @@ export function Whiteboard() {
     containerRef,
     images.getCachedImage,
   );
+  const {
+    scheduleViewportRender,
+    rebuildAndRender,
+    setOverlayRenderer,
+    setSuppressedImageOpId,
+  } = canvas;
 
   // Connect image hook rebuild callback to canvas
   useEffect(() => {
-    // When images finish loading, they call this to trigger a world canvas rebuild
-    images.setRebuildCallback(() => {
-      // Trigger the opsArray observer by scheduling a viewport render
-      // The actual rebuild is driven by the observer in useWhiteboardCanvas
-      canvas.scheduleViewportRender();
-    });
-  }, [images, canvas]);
+    images.setRebuildCallback(rebuildAndRender);
+  }, [images, rebuildAndRender]);
 
   // Undo/redo
   const undoRedo = useUndoRedo(doc, opsArray, images.imageMap);
+  const {
+    canUndo,
+    canRedo,
+    undoStack: undoStackRef,
+    redoStack: redoStackRef,
+    setCanUndo,
+    setCanRedo,
+    handleUndo,
+    handleRedo,
+    handleClear,
+  } = undoRedo;
 
   // Drawing interaction
   const drawing = useDrawing(
@@ -101,63 +117,111 @@ export function Whiteboard() {
     opsArray,
     viewport.transformRef,
     canvasRef,
-    canvas.scheduleViewportRender,
-    undoRedo.undoStack,
-    undoRedo.redoStack,
-    undoRedo.setCanUndo,
-    undoRedo.setCanRedo,
+    scheduleViewportRender,
+    undoStackRef,
+    redoStackRef,
+    setCanUndo,
+    setCanRedo,
     currentOp,
   );
 
   // Image select (move/resize)
   const imageSelect = useImageSelect(
     opsArray,
+    images.imageMap,
     viewport.transformRef,
     canvasRef,
-    canvas.scheduleViewportRender,
-    undoRedo.undoStack,
-    undoRedo.redoStack,
-    undoRedo.setCanUndo,
-    undoRedo.setCanRedo,
+    scheduleViewportRender,
+    setSuppressedImageOpId,
+    undoStackRef,
+    redoStackRef,
+    setCanUndo,
+    setCanRedo,
+    images.getCachedImage,
   );
+  const {
+    handleSelectStart,
+    handleSelectMove,
+    handleSelectEnd,
+    getSelectedOpId,
+    deleteSelectedImage,
+    deselect: deselectSelectedImage,
+    drawOverlay,
+    getHoverCursor,
+  } = imageSelect;
+
+  useEffect(() => {
+    if (tool === 'select') {
+      setOverlayRenderer(drawOverlay);
+    } else {
+      setOverlayRenderer(null);
+    }
+
+    return () => {
+      setOverlayRenderer(null);
+    };
+  }, [tool, setOverlayRenderer, drawOverlay]);
 
   // Deselect when switching away from select tool
   useEffect(() => {
     if (tool !== 'select') {
-      imageSelect.deselect();
+      deselectSelectedImage();
     }
-  }, [tool, imageSelect]);
+  }, [tool, deselectSelectedImage]);
+
+  useEffect(() => {
+    const handleDelete = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (!getSelectedOpId()) return;
+
+      e.preventDefault();
+      deleteSelectedImage();
+      setSelectCursor('default');
+    };
+
+    document.addEventListener('keydown', handleDelete);
+    return () => document.removeEventListener('keydown', handleDelete);
+  }, [getSelectedOpId, deleteSelectedImage]);
 
   // Wrapped handlers that delegate to select tool or drawing tool
   const wrappedHandleStart = useCallback(
     (e: React.PointerEvent) => {
       if (tool === 'select') {
-        imageSelect.handleSelectStart(e);
+        handleSelectStart(e);
       } else {
         drawing.handleStart(e);
       }
     },
-    [tool, imageSelect, drawing],
+    [tool, handleSelectStart, drawing],
   );
 
   const wrappedHandleMove = useCallback(
     (e: React.PointerEvent) => {
       if (tool === 'select') {
-        imageSelect.handleSelectMove(e);
+        handleSelectMove(e);
       } else {
         drawing.handleMove(e);
       }
     },
-    [tool, imageSelect, drawing],
+    [tool, handleSelectMove, drawing],
   );
 
   const wrappedHandleEnd = useCallback(() => {
     if (tool === 'select') {
-      imageSelect.handleSelectEnd();
+      handleSelectEnd();
     } else {
       drawing.handleEnd();
     }
-  }, [tool, imageSelect, drawing]);
+  }, [tool, handleSelectEnd, drawing]);
 
   // Pointer event dispatch
   const pointers = usePointerHandlers(
@@ -177,7 +241,7 @@ export function Whiteboard() {
     wrappedHandleStart,
     wrappedHandleMove,
     wrappedHandleEnd,
-    canvas.scheduleViewportRender,
+    scheduleViewportRender,
   );
 
   // --- Image upload handler ---
@@ -205,11 +269,14 @@ export function Whiteboard() {
         if (op) {
           // Push to undo stack
           const imageData = images.imageMap.get(op.imageId!);
-          undoRedo.undoStack.current.push({
+          undoStackRef.current.push({
+            action: 'add',
             op,
-            imageData: imageData ? imageData : undefined,
+            imageData: imageData ? new Uint8Array(imageData) : undefined,
           });
-          undoRedo.setCanUndo(true);
+          redoStackRef.current = [];
+          setCanUndo(true);
+          setCanRedo(false);
 
           // Switch to select tool so user can reposition
           setTool('select');
@@ -220,7 +287,15 @@ export function Whiteboard() {
         alert(err instanceof Error ? err.message : 'Failed to process image');
       }
     },
-    [images, viewport.transformRef, undoRedo, setTool],
+    [
+      images,
+      viewport.transformRef,
+      undoStackRef,
+      redoStackRef,
+      setCanUndo,
+      setCanRedo,
+      setTool,
+    ],
   );
 
   // --- Clipboard paste ---
@@ -255,45 +330,6 @@ export function Whiteboard() {
     return () => document.removeEventListener('paste', handlePaste);
   }, [handleImageUpload]);
 
-  // --- Draw selection UI overlay ---
-  // Monkey-patch: schedule an extra render pass after the base viewport render
-  // to draw selection handles on top
-  useEffect(() => {
-    if (tool !== 'select') return;
-
-    const drawOverlay = () => {
-      const ctx = canvasRef.current?.getContext('2d');
-      if (!ctx) return;
-      const dpr = window.devicePixelRatio || 1;
-      imageSelect.drawSelectionUI(ctx, viewport.transformRef.current, dpr);
-    };
-
-    // Observe any rendering by wrapping scheduleViewportRender
-    const originalRender = canvas.scheduleViewportRender;
-    const wrappedRender = () => {
-      originalRender();
-      // Selection UI draws after the next rAF
-      requestAnimationFrame(drawOverlay);
-    };
-
-    // Subscribe to ops changes to redraw selection
-    const observer = () => {
-      requestAnimationFrame(drawOverlay);
-    };
-    opsArray.observe(observer);
-
-    // Draw immediately
-    requestAnimationFrame(drawOverlay);
-
-    // Also redraw on transform changes (handled via scheduleViewportRender)
-    // We patch into pointer handlers' scheduleViewportRender calls
-    return () => {
-      opsArray.unobserve(observer);
-      // wrappedRender is only used for the overlay effect, no cleanup needed
-      void wrappedRender;
-    };
-  }, [tool, imageSelect, canvas, viewport.transformRef, opsArray]);
-
   // Generate custom round cursor for pen and eraser tools
   const brushCursor = (() => {
     if (tool === 'select') return 'default';
@@ -314,7 +350,6 @@ export function Whiteboard() {
   })();
 
   // Dynamic cursor for select tool (move/resize feedback)
-  const [selectCursor, setSelectCursor] = useState('default');
   const handleMouseMoveForCursor = useCallback(
     (e: React.MouseEvent) => {
       if (tool !== 'select') return;
@@ -329,13 +364,13 @@ export function Whiteboard() {
           (e.clientY - rect.top) / viewport.transformRef.current.scale +
           viewport.transformRef.current.y,
       };
-      const cursor = imageSelect.getHoverCursor(
+      const cursor = getHoverCursor(
         worldPos,
         viewport.transformRef.current,
       );
       setSelectCursor(cursor);
     },
-    [tool, viewport.transformRef, imageSelect],
+    [tool, viewport.transformRef, getHoverCursor],
   );
 
   const activeCursor = tool === 'select' ? selectCursor : brushCursor;
@@ -346,15 +381,15 @@ export function Whiteboard() {
         tool={tool}
         colour={colour}
         size={size}
-        canUndo={undoRedo.canUndo}
-        canRedo={undoRedo.canRedo}
+        canUndo={canUndo}
+        canRedo={canRedo}
         isMobile={isMobile}
         setTool={setTool}
         setColour={setColour}
         setSize={setSize}
-        handleUndo={undoRedo.handleUndo}
-        handleRedo={undoRedo.handleRedo}
-        handleClear={undoRedo.handleClear}
+        handleUndo={handleUndo}
+        handleRedo={handleRedo}
+        handleClear={handleClear}
         onImageUpload={handleImageUpload}
       />
 

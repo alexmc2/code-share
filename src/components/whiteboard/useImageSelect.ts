@@ -2,8 +2,8 @@ import { useRef, useCallback } from 'react';
 import type { DrawOp, Point, ResizeHandle, UndoEntry } from './types';
 import type * as Y from 'yjs';
 
-// Handle hit-test radius in screen-space pixels
 const HANDLE_RADIUS = 10;
+const MIN_IMAGE_SIZE = 30;
 
 interface SelectionState {
   selectedOpId: string | null;
@@ -22,8 +22,9 @@ export interface ImageSelectState {
   handleSelectMove: (e: React.PointerEvent) => void;
   handleSelectEnd: () => void;
   getSelectedOpId: () => string | null;
+  deleteSelectedImage: () => boolean;
   deselect: () => void;
-  drawSelectionUI: (
+  drawOverlay: (
     ctx: CanvasRenderingContext2D,
     transform: { x: number; y: number; scale: number },
     dpr: number,
@@ -36,13 +37,16 @@ export interface ImageSelectState {
 
 export function useImageSelect(
   opsArray: Y.Array<DrawOp>,
+  imageMap: Y.Map<Uint8Array>,
   transformRef: React.RefObject<{ x: number; y: number; scale: number }>,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   scheduleViewportRender: () => void,
+  setSuppressedImageOpId: (opId: string | null) => void,
   undoStackRef: React.RefObject<UndoEntry[]>,
   redoStackRef: React.RefObject<UndoEntry[]>,
   setCanUndo: React.Dispatch<React.SetStateAction<boolean>>,
   setCanRedo: React.Dispatch<React.SetStateAction<boolean>>,
+  getCachedImage?: (imageId: string) => ImageBitmap | undefined,
 ): ImageSelectState {
   const selectionRef = useRef<SelectionState>({
     selectedOpId: null,
@@ -68,11 +72,9 @@ export function useImageSelect(
     [canvasRef, transformRef],
   );
 
-  // Hit-test: find the topmost image op at worldPos
   const hitTestImage = useCallback(
     (worldPos: Point): DrawOp | null => {
       const ops = opsArray.toArray();
-      // Reverse iteration for topmost-first
       for (let i = ops.length - 1; i >= 0; i--) {
         const op = ops[i];
         if (
@@ -101,7 +103,6 @@ export function useImageSelect(
     [opsArray],
   );
 
-  // Check if a screen-space point is near a resize handle
   const getHandleAtScreenPos = useCallback(
     (
       worldPos: Point,
@@ -115,15 +116,11 @@ export function useImageSelect(
         { handle: 'se', wx: bounds.x2, wy: bounds.y2 },
       ];
 
-      // Convert handle radius from screen to world pixels
       const handleWorldRadius = HANDLE_RADIUS / transform.scale;
-
       for (const { handle, wx, wy } of corners) {
         const dx = worldPos.x - wx;
         const dy = worldPos.y - wy;
-        if (Math.hypot(dx, dy) <= handleWorldRadius) {
-          return handle;
-        }
+        if (Math.hypot(dx, dy) <= handleWorldRadius) return handle;
       }
       return null;
     },
@@ -136,6 +133,7 @@ export function useImageSelect(
       const op = ops.find((o) => o.id === opId);
       if (
         op &&
+        op.type === 'image' &&
         op.x1 !== undefined &&
         op.y1 !== undefined &&
         op.x2 !== undefined &&
@@ -156,19 +154,70 @@ export function useImageSelect(
     selectionRef.current = { selectedOpId: null, selectionBounds: null };
     previewOpRef.current = null;
     dragRef.current = null;
+    setSuppressedImageOpId(null);
     scheduleViewportRender();
-  }, [scheduleViewportRender]);
+  }, [setSuppressedImageOpId, scheduleViewportRender]);
 
   const getSelectedOpId = useCallback((): string | null => {
     return selectionRef.current.selectedOpId;
   }, []);
+
+  const deleteSelectedImage = useCallback((): boolean => {
+    const selectedId = selectionRef.current.selectedOpId;
+    if (!selectedId) return false;
+
+    const ops = opsArray.toArray();
+    const index = ops.findIndex((op) => op.id === selectedId);
+    if (index === -1) {
+      deselect();
+      return false;
+    }
+
+    const op = ops[index];
+    if (op.type !== 'image') {
+      deselect();
+      return false;
+    }
+
+    const storedImageData = op.imageId ? imageMap.get(op.imageId) : undefined;
+    const imageData = storedImageData
+      ? new Uint8Array(storedImageData)
+      : undefined;
+
+    opsArray.doc?.transact(() => {
+      opsArray.delete(index, 1);
+      if (op.imageId) {
+        imageMap.delete(op.imageId);
+      }
+    });
+
+    undoStackRef.current.push({
+      action: 'delete',
+      op: { ...op },
+      imageData,
+      index,
+    });
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+
+    deselect();
+    return true;
+  }, [
+    opsArray,
+    imageMap,
+    undoStackRef,
+    redoStackRef,
+    setCanUndo,
+    setCanRedo,
+    deselect,
+  ]);
 
   const handleSelectStart = useCallback(
     (e: React.PointerEvent): void => {
       const worldPos = getPosition(e);
       const selection = selectionRef.current;
 
-      // Check if clicking on a resize handle of the currently selected image
       if (selection.selectedOpId && selection.selectionBounds) {
         const handle = getHandleAtScreenPos(
           worldPos,
@@ -186,12 +235,13 @@ export function useImageSelect(
               handle,
             };
             previewOpRef.current = { ...op };
+            setSuppressedImageOpId(op.id);
+            scheduleViewportRender();
             return;
           }
         }
       }
 
-      // Hit-test for an image
       const hitOp = hitTestImage(worldPos);
       if (hitOp) {
         selectionRef.current = {
@@ -209,18 +259,19 @@ export function useImageSelect(
           originalOp: { ...hitOp },
         };
         previewOpRef.current = { ...hitOp };
+        setSuppressedImageOpId(hitOp.id);
         scheduleViewportRender();
       } else {
-        // Clicked empty space → deselect
         deselect();
       }
     },
     [
       getPosition,
-      hitTestImage,
       getHandleAtScreenPos,
       transformRef,
       opsArray,
+      hitTestImage,
+      setSuppressedImageOpId,
       scheduleViewportRender,
       deselect,
     ],
@@ -229,7 +280,8 @@ export function useImageSelect(
   const handleSelectMove = useCallback(
     (e: React.PointerEvent): void => {
       const drag = dragRef.current;
-      if (!drag || !previewOpRef.current) return;
+      const preview = previewOpRef.current;
+      if (!drag || !preview) return;
 
       const worldPos = getPosition(e);
       const dx = worldPos.x - drag.startWorld.x;
@@ -237,12 +289,11 @@ export function useImageSelect(
       const orig = drag.originalOp;
 
       if (drag.mode === 'move') {
-        previewOpRef.current.x1 = orig.x1! + dx;
-        previewOpRef.current.y1 = orig.y1! + dy;
-        previewOpRef.current.x2 = orig.x2! + dx;
-        previewOpRef.current.y2 = orig.y2! + dy;
+        preview.x1 = orig.x1! + dx;
+        preview.y1 = orig.y1! + dy;
+        preview.x2 = orig.x2! + dx;
+        preview.y2 = orig.y2! + dy;
       } else if (drag.mode === 'resize' && drag.handle) {
-        // Aspect-ratio locked resize
         const origW = orig.x2! - orig.x1!;
         const origH = orig.y2! - orig.y1!;
         const aspect = origW / origH;
@@ -271,27 +322,23 @@ export function useImageSelect(
             break;
         }
 
-        // Enforce minimum size (30px in world coords)
-        const minSize = 30;
         if (
-          Math.abs(newX2 - newX1) >= minSize &&
-          Math.abs(newY2 - newY1) >= minSize
+          Math.abs(newX2 - newX1) >= MIN_IMAGE_SIZE &&
+          Math.abs(newY2 - newY1) >= MIN_IMAGE_SIZE
         ) {
-          previewOpRef.current.x1 = newX1;
-          previewOpRef.current.y1 = newY1;
-          previewOpRef.current.x2 = newX2;
-          previewOpRef.current.y2 = newY2;
+          preview.x1 = newX1;
+          preview.y1 = newY1;
+          preview.x2 = newX2;
+          preview.y2 = newY2;
         }
       }
 
-      // Update selection bounds for rendering
       selectionRef.current.selectionBounds = {
-        x1: previewOpRef.current.x1!,
-        y1: previewOpRef.current.y1!,
-        x2: previewOpRef.current.x2!,
-        y2: previewOpRef.current.y2!,
+        x1: preview.x1!,
+        y1: preview.y1!,
+        x2: preview.x2!,
+        y2: preview.y2!,
       };
-
       scheduleViewportRender();
     },
     [getPosition, scheduleViewportRender],
@@ -300,10 +347,8 @@ export function useImageSelect(
   const handleSelectEnd = useCallback((): void => {
     const drag = dragRef.current;
     const preview = previewOpRef.current;
-
     if (!drag || !preview) return;
 
-    // Check if actually moved/resized
     const hasMoved =
       preview.x1 !== drag.originalOp.x1 ||
       preview.y1 !== drag.originalOp.y1 ||
@@ -311,7 +356,6 @@ export function useImageSelect(
       preview.y2 !== drag.originalOp.y2;
 
     if (hasMoved) {
-      // Commit: delete old op, insert new one
       const ops = opsArray.toArray();
       const index = ops.findIndex((o) => o.id === drag.originalOp.id);
       if (index !== -1) {
@@ -324,13 +368,13 @@ export function useImageSelect(
           ts: Date.now(),
         };
 
-        opsArray.doc!.transact(() => {
+        opsArray.doc?.transact(() => {
           opsArray.delete(index, 1);
           opsArray.push([newOp]);
         });
 
-        // Update undo stack
         undoStackRef.current.push({
+          action: 'transform',
           op: newOp,
           previousOp: drag.originalOp,
         });
@@ -338,7 +382,6 @@ export function useImageSelect(
         setCanUndo(true);
         setCanRedo(false);
 
-        // Update selection to point at new op
         selectionRef.current.selectedOpId = newOp.id;
         updateSelectionBounds(newOp.id);
       }
@@ -346,6 +389,7 @@ export function useImageSelect(
 
     dragRef.current = null;
     previewOpRef.current = null;
+    setSuppressedImageOpId(null);
     scheduleViewportRender();
   }, [
     opsArray,
@@ -354,43 +398,101 @@ export function useImageSelect(
     setCanUndo,
     setCanRedo,
     updateSelectionBounds,
+    setSuppressedImageOpId,
     scheduleViewportRender,
   ]);
 
-  // Draw selection UI (dashed box + corner handles)
-  const drawSelectionUI = useCallback(
+  const drawOverlay = useCallback(
     (
       ctx: CanvasRenderingContext2D,
       transform: { x: number; y: number; scale: number },
       dpr: number,
     ): void => {
       const selection = selectionRef.current;
-      if (!selection.selectedOpId || !selection.selectionBounds) return;
+      if (!selection.selectedOpId) return;
 
-      const bounds = selection.selectionBounds;
-      const scale = transform.scale;
+      // Keep selection bounds synced when remote edits occur and no local drag is active.
+      if (!dragRef.current) {
+        const ops = opsArray.toArray();
+        const selectedOp = ops.find((op) => op.id === selection.selectedOpId);
+        if (
+          !selectedOp ||
+          selectedOp.type !== 'image' ||
+          selectedOp.x1 === undefined ||
+          selectedOp.y1 === undefined ||
+          selectedOp.x2 === undefined ||
+          selectedOp.y2 === undefined
+        ) {
+          selectionRef.current = { selectedOpId: null, selectionBounds: null };
+          previewOpRef.current = null;
+          setSuppressedImageOpId(null);
+          return;
+        }
+        selection.selectionBounds = {
+          x1: selectedOp.x1,
+          y1: selectedOp.y1,
+          x2: selectedOp.x2,
+          y2: selectedOp.y2,
+        };
+      }
 
-      // Convert world coords to physical pixel coords
-      const toPhysX = (wx: number) => (wx - transform.x) * scale * dpr;
-      const toPhysY = (wy: number) => (wy - transform.y) * scale * dpr;
+      const preview = previewOpRef.current;
+      if (
+        preview &&
+        preview.imageId &&
+        preview.x1 !== undefined &&
+        preview.y1 !== undefined &&
+        preview.x2 !== undefined &&
+        preview.y2 !== undefined
+      ) {
+        const bitmap = getCachedImage?.(preview.imageId);
+        ctx.save();
+        const worldToPhys = dpr * transform.scale;
+        ctx.scale(worldToPhys, worldToPhys);
+        ctx.translate(-transform.x, -transform.y);
+        if (bitmap) {
+          ctx.drawImage(
+            bitmap,
+            preview.x1,
+            preview.y1,
+            preview.x2 - preview.x1,
+            preview.y2 - preview.y1,
+          );
+        } else {
+          ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+          ctx.fillRect(
+            preview.x1,
+            preview.y1,
+            preview.x2 - preview.x1,
+            preview.y2 - preview.y1,
+          );
+        }
+        ctx.restore();
+      }
 
-      const px1 = toPhysX(bounds.x1);
-      const py1 = toPhysY(bounds.y1);
-      const px2 = toPhysX(bounds.x2);
-      const py2 = toPhysY(bounds.y2);
+      if (!selection.selectionBounds) return;
+      const minX = Math.min(selection.selectionBounds.x1, selection.selectionBounds.x2);
+      const maxX = Math.max(selection.selectionBounds.x1, selection.selectionBounds.x2);
+      const minY = Math.min(selection.selectionBounds.y1, selection.selectionBounds.y2);
+      const maxY = Math.max(selection.selectionBounds.y1, selection.selectionBounds.y2);
+
+      const toPhysX = (wx: number) => (wx - transform.x) * transform.scale * dpr;
+      const toPhysY = (wy: number) => (wy - transform.y) * transform.scale * dpr;
+
+      const px1 = toPhysX(minX);
+      const py1 = toPhysY(minY);
+      const px2 = toPhysX(maxX);
+      const py2 = toPhysY(maxY);
 
       ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0); // Identity — work in physical pixels
-
-      // Dashed selection rectangle
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.strokeStyle = '#3b82f6';
       ctx.lineWidth = 2 * dpr;
       ctx.setLineDash([6 * dpr, 4 * dpr]);
       ctx.strokeRect(px1, py1, px2 - px1, py2 - py1);
       ctx.setLineDash([]);
 
-      // Corner handles
-      const handleSize = 6 * dpr;
+      const handleRadius = 6 * dpr;
       const corners = [
         { x: px1, y: py1 },
         { x: px2, y: py1 },
@@ -403,25 +505,22 @@ export function useImageSelect(
         ctx.strokeStyle = '#3b82f6';
         ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
-        ctx.arc(corner.x, corner.y, handleSize, 0, Math.PI * 2);
+        ctx.arc(corner.x, corner.y, handleRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
 
       ctx.restore();
     },
-    [],
+    [opsArray, getCachedImage, setSuppressedImageOpId],
   );
 
-  // Get cursor for hover state
   const getHoverCursor = useCallback(
     (
       worldPos: Point,
       transform: { x: number; y: number; scale: number },
     ): string => {
       const selection = selectionRef.current;
-
-      // Check resize handles first
       if (selection.selectedOpId && selection.selectionBounds) {
         const handle = getHandleAtScreenPos(
           worldPos,
@@ -434,10 +533,8 @@ export function useImageSelect(
         }
       }
 
-      // Check if hovering over any image
       const hitOp = hitTestImage(worldPos);
       if (hitOp) return 'move';
-
       return 'default';
     },
     [hitTestImage, getHandleAtScreenPos],
@@ -448,8 +545,9 @@ export function useImageSelect(
     handleSelectMove,
     handleSelectEnd,
     getSelectedOpId,
+    deleteSelectedImage,
     deselect,
-    drawSelectionUI,
+    drawOverlay,
     getHoverCursor,
   };
 }

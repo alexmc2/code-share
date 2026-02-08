@@ -77,7 +77,7 @@ export function useDrawing(
           y1: pos.y,
         };
         opsArray.push([fillOp]);
-        undoStackRef.current.push({ op: fillOp });
+        undoStackRef.current.push({ action: 'add', op: fillOp });
         redoStackRef.current = [];
         setCanUndo(true);
         setCanRedo(false);
@@ -173,7 +173,7 @@ export function useDrawing(
 
     // Always push to opsArray (eraseStroke always has points)
     opsArray.push([currentOpRef.current]);
-    undoStackRef.current.push({ op: currentOpRef.current });
+    undoStackRef.current.push({ action: 'add', op: currentOpRef.current });
     redoStackRef.current = [];
     setCanUndo(true);
     setCanRedo(false);
