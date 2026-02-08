@@ -15,6 +15,7 @@ import {
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
+import { ToolbarTooltip } from './ui/toolbar-tooltip';
 import * as Y from 'yjs';
 
 interface ChatMessage {
@@ -25,6 +26,14 @@ interface ChatMessage {
 }
 
 const RECENT_MESSAGE_WINDOW_MS = 5000;
+const EMOJI_PICKER_MAX_WIDTH = 320;
+const EMOJI_PICKER_MAX_HEIGHT = 400;
+const EMOJI_PICKER_MIN_WIDTH = 220;
+const EMOJI_PICKER_MIN_HEIGHT = 240;
+const EMOJI_PICKER_VIEWPORT_PADDING = 24;
+const EMOJI_PICKER_VIEWPORT_VERTICAL_PADDING = 140;
+const TOOLBAR_POPOVER_CHROME_CLASS =
+  'rounded-lg border border-slate-200 bg-white text-slate-700 shadow-[0_4px_16px_rgba(15,23,42,0.08)] dark:border-slate-700/80 dark:bg-slate-900 dark:text-slate-100 dark:shadow-[0_12px_22px_rgba(2,6,23,0.45)]';
 
 // Escape HTML to prevent XSS
 function escapeHtml(text: string): string {
@@ -44,6 +53,8 @@ interface MessageRowProps {
   reactionPickerOpen: string | null;
   fullPickerOpen: string | null;
   emojiTheme: EmojiTheme;
+  emojiPickerWidth: number;
+  emojiPickerHeight: number;
   onCopy: (msg: ChatMessage) => void;
   onDelete: (msg: ChatMessage) => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
@@ -60,6 +71,8 @@ function MessageRow({
   reactionPickerOpen,
   fullPickerOpen,
   emojiTheme,
+  emojiPickerWidth,
+  emojiPickerHeight,
   onCopy,
   onDelete,
   onToggleReaction,
@@ -83,20 +96,24 @@ function MessageRow({
               if (!open) onSetFullPickerOpen(null);
             }}
           >
-            <PopoverTrigger asChild>
-              <button
-                className="copy-btn w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center rounded text-text-muted
+            <ToolbarTooltip label="Add reaction" align="end">
+              <PopoverTrigger asChild>
+                <button
+                  className="copy-btn w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center rounded text-text-muted
                            hover:text-text hover:bg-panel transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100
                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label="Add reaction"
-                title="Add reaction"
-              >
-                <Smile className="w-4 h-4 sm:w-3 sm:h-3" />
-              </button>
-            </PopoverTrigger>
+                  aria-label="Add reaction"
+                >
+                  <Smile className="w-4 h-4 sm:w-3 sm:h-3" />
+                </button>
+              </PopoverTrigger>
+            </ToolbarTooltip>
             <PopoverContent
-              className="w-auto p-0"
-              align="start"
+              className={`w-auto max-w-[calc(100vw-1rem)] p-0 overflow-hidden ${TOOLBAR_POPOVER_CHROME_CLASS}`}
+              align="end"
+              side="top"
+              sideOffset={10}
+              collisionPadding={12}
               onOpenAutoFocus={(e) => e.preventDefault()}
             >
               {fullPickerOpen === msg.id ? (
@@ -118,8 +135,8 @@ function MessageRow({
                       onSetFullPickerOpen(null);
                     }}
                     theme={emojiTheme}
-                    width={320}
-                    height={400}
+                    width={emojiPickerWidth}
+                    height={emojiPickerHeight}
                   />
                 </div>
               ) : (
@@ -154,31 +171,33 @@ function MessageRow({
             </PopoverContent>
           </Popover>
 
-          <button
-            className="copy-btn w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center rounded text-text-muted
-                       hover:text-text hover:bg-panel transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100
-                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            onClick={() => onCopy(msg)}
-            aria-label="Copy message"
-            title="Copy message"
-          >
-            {copiedId === msg.id ? (
-              <Check className="w-4 h-4 sm:w-3 sm:h-3 text-success" />
-            ) : (
-              <Copy className="w-4 h-4 sm:w-3 sm:h-3" />
-            )}
-          </button>
-          {isOwn && (
+          <ToolbarTooltip label="Copy message" align="end">
             <button
               className="copy-btn w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center rounded text-text-muted
+                       hover:text-text hover:bg-panel transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              onClick={() => onCopy(msg)}
+              aria-label="Copy message"
+            >
+              {copiedId === msg.id ? (
+                <Check className="w-4 h-4 sm:w-3 sm:h-3 text-success" />
+              ) : (
+                <Copy className="w-4 h-4 sm:w-3 sm:h-3" />
+              )}
+            </button>
+          </ToolbarTooltip>
+          {isOwn && (
+            <ToolbarTooltip label="Delete message" align="end">
+              <button
+                className="copy-btn w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center rounded text-text-muted
                          hover:text-danger hover:bg-danger/10 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100
                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
-              onClick={() => onDelete(msg)}
-              aria-label="Delete message"
-              title="Delete message"
-            >
-              <Trash2 className="w-4 h-4 sm:w-3 sm:h-3" />
-            </button>
+                onClick={() => onDelete(msg)}
+                aria-label="Delete message"
+              >
+                <Trash2 className="w-4 h-4 sm:w-3 sm:h-3" />
+              </button>
+            </ToolbarTooltip>
           )}
           <span className="text-[10px] text-text-muted">
             {new Date(msg.ts).toLocaleTimeString([], {
@@ -199,20 +218,22 @@ function MessageRow({
             const hasReacted = userIds.has(localPeerId);
             const tooltip = getUserNamesTooltip(userIds);
             return (
-              <button
-                key={emoji}
-                onClick={() => onToggleReaction(msg.id, emoji)}
-                className={`reaction-pill-bg flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                  hasReacted
-                    ? 'border-slate-400/40 text-text ring-0.5 ring-slate-50 dark:ring-slate-500/50'
-                    : 'border-slate-300/20 dark:border-slate-600/30 text-text-muted hover:border-slate-400/50 dark:hover:border-slate-500/40'
-                }`}
-                aria-label={`${emoji} ${userIds.size} reaction${userIds.size > 1 ? 's' : ''}${hasReacted ? ', you reacted' : ''}`}
-                title={tooltip}
-              >
-                <span className="text-[14px]">{emoji}</span>
-                <span className="text-[12px] font-medium">{userIds.size}</span>
-              </button>
+              <ToolbarTooltip key={emoji} label={tooltip} align="start">
+                <button
+                  onClick={() => onToggleReaction(msg.id, emoji)}
+                  className={`reaction-pill-bg flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                    hasReacted
+                      ? 'border-slate-400/40 text-text ring-0.5 ring-slate-50 dark:ring-slate-500/50'
+                      : 'border-slate-300/20 dark:border-slate-600/30 text-text-muted hover:border-slate-400/50 dark:hover:border-slate-500/40'
+                  }`}
+                  aria-label={`${emoji} ${userIds.size} reaction${userIds.size > 1 ? 's' : ''}${hasReacted ? ', you reacted' : ''}`}
+                >
+                  <span className="text-[14px]">{emoji}</span>
+                  <span className="text-[12px] font-medium">
+                    {userIds.size}
+                  </span>
+                </button>
+              </ToolbarTooltip>
             );
           })}
         </div>
@@ -247,6 +268,10 @@ export function Chat({ soundEnabled = true }: ChatProps) {
   );
   const [fullPickerOpen, setFullPickerOpen] = useState<string | null>(null);
   const [inputEmojiPickerOpen, setInputEmojiPickerOpen] = useState(false);
+  const [emojiPickerSize, setEmojiPickerSize] = useState({
+    width: EMOJI_PICKER_MAX_WIDTH,
+    height: EMOJI_PICKER_MAX_HEIGHT,
+  });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -350,6 +375,33 @@ export function Chat({ soundEnabled = true }: ChatProps) {
   // Map theme to EmojiPicker theme type
   const emojiTheme: EmojiTheme =
     theme === 'dark' ? EmojiTheme.DARK : EmojiTheme.LIGHT;
+
+  useEffect(() => {
+    const updateEmojiPickerSize = () => {
+      const width = Math.max(
+        EMOJI_PICKER_MIN_WIDTH,
+        Math.min(
+          EMOJI_PICKER_MAX_WIDTH,
+          window.innerWidth - EMOJI_PICKER_VIEWPORT_PADDING,
+        ),
+      );
+      const height = Math.max(
+        EMOJI_PICKER_MIN_HEIGHT,
+        Math.min(
+          EMOJI_PICKER_MAX_HEIGHT,
+          window.innerHeight - EMOJI_PICKER_VIEWPORT_VERTICAL_PADDING,
+        ),
+      );
+      setEmojiPickerSize({ width, height });
+    };
+
+    updateEmojiPickerSize();
+    window.addEventListener('resize', updateEmojiPickerSize);
+
+    return () => {
+      window.removeEventListener('resize', updateEmojiPickerSize);
+    };
+  }, []);
 
   // Sync reactions from Yjs
   useEffect(() => {
@@ -505,7 +557,12 @@ export function Chat({ soundEnabled = true }: ChatProps) {
     if (!pendingPingRef.current) {
       removeUnlockListeners();
     }
-  }, [ensureAudioContext, resumeAudioContext, playPingTone, removeUnlockListeners]);
+  }, [
+    ensureAudioContext,
+    resumeAudioContext,
+    playPingTone,
+    removeUnlockListeners,
+  ]);
 
   const attachUnlockListeners = useCallback(() => {
     if (unlockListenersAttachedRef.current) return;
@@ -571,7 +628,12 @@ export function Chat({ soundEnabled = true }: ChatProps) {
 
     pendingPingRef.current = false;
     playPingTone(ctx);
-  }, [attachUnlockListeners, ensureAudioContext, resumeAudioContext, playPingTone]);
+  }, [
+    attachUnlockListeners,
+    ensureAudioContext,
+    resumeAudioContext,
+    playPingTone,
+  ]);
 
   // Get Y.Array for chat messages
   const chatArray = doc.getArray<ChatMessage>('chat');
@@ -790,6 +852,8 @@ export function Chat({ soundEnabled = true }: ChatProps) {
                 reactionPickerOpen={reactionPickerOpen}
                 fullPickerOpen={fullPickerOpen}
                 emojiTheme={emojiTheme}
+                emojiPickerWidth={emojiPickerSize.width}
+                emojiPickerHeight={emojiPickerSize.height}
                 onCopy={handleCopy}
                 onDelete={setMessageToDelete}
                 onToggleReaction={toggleReaction}
@@ -839,7 +903,13 @@ export function Chat({ soundEnabled = true }: ChatProps) {
               <Smile className="w-5 h-5" />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="end" side="top">
+          <PopoverContent
+            className={`w-auto max-w-[calc(100vw-1rem)] p-0 overflow-hidden ${TOOLBAR_POPOVER_CHROME_CLASS}`}
+            align="end"
+            side="top"
+            sideOffset={10}
+            collisionPadding={12}
+          >
             {inputEmojiPickerOpen && (
               <EmojiPicker
                 onEmojiClick={(emojiData) => {
@@ -847,8 +917,8 @@ export function Chat({ soundEnabled = true }: ChatProps) {
                   setInputEmojiPickerOpen(false);
                 }}
                 theme={emojiTheme}
-                width={320}
-                height={400}
+                width={emojiPickerSize.width}
+                height={emojiPickerSize.height}
               />
             )}
           </PopoverContent>

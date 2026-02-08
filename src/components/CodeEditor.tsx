@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+import { ToolbarTooltip } from './ui/toolbar-tooltip';
 
 const LANGUAGES = [
   { id: 'javascript', label: 'JavaScript' },
@@ -411,9 +412,18 @@ export function CodeEditor() {
             >
               <SelectValue placeholder="Select Language" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent
+              align="start"
+              side="bottom"
+              collisionPadding={12}
+              className="w-52 max-w-[calc(100vw-1rem)] max-h-[min(var(--radix-select-content-available-height),calc(100vh-1rem))] rounded-xl border border-slate-300/90 bg-white text-slate-700 shadow-[0_12px_28px_rgba(15,23,42,0.2)] dark:border-slate-700/80 dark:bg-slate-900 dark:text-slate-100 dark:shadow-[0_12px_28px_rgba(2,6,23,0.5)]"
+            >
               {LANGUAGES.map((lang) => (
-                <SelectItem key={lang.id} value={lang.id}>
+                <SelectItem
+                  key={lang.id}
+                  value={lang.id}
+                  className="focus:bg-slate-100 focus:text-slate-900 dark:focus:bg-slate-800 dark:focus:text-slate-100 data-[state=checked]:bg-slate-100 data-[state=checked]:text-slate-900 dark:data-[state=checked]:bg-slate-800 dark:data-[state=checked]:text-slate-100"
+                >
                   {lang.label}
                 </SelectItem>
               ))}
@@ -425,41 +435,46 @@ export function CodeEditor() {
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="h-6 w-px bg-border hidden sm:block" />
 
-          <div
-            className="flex items-center gap-1.5 sm:gap-2"
-            title="Enable Prettier formatting on save (Ctrl+S)"
+          <ToolbarTooltip
+            label="Enable Prettier formatting on save (Ctrl+S)"
+            align="start"
           >
-            <label
-              htmlFor="format-toggle"
-              className="text-xs text-text-muted hidden sm:inline cursor-pointer select-none"
-            >
-              Prettier
-            </label>
-            <Switch
-              id="format-toggle"
-              checked={isFormatterEnabled}
-              onCheckedChange={setIsFormatterEnabled}
-            />
-          </div>
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <label
+                htmlFor="format-toggle"
+                className="text-xs text-text-muted hidden sm:inline cursor-pointer select-none"
+              >
+                Prettier
+              </label>
+              <Switch
+                id="format-toggle"
+                checked={isFormatterEnabled}
+                onCheckedChange={setIsFormatterEnabled}
+              />
+            </div>
+          </ToolbarTooltip>
 
           <div className="h-6 w-px bg-border hidden sm:block" />
 
-          <div
-            className="flex items-center gap-1.5 sm:gap-2"
-            title="Toggle Strict Mode (Enable/Disable Diagnostics)"
+          <ToolbarTooltip
+            label="Toggle Strict Mode (Enable/Disable Diagnostics)"
+            align="start"
           >
-            <label
-              htmlFor="strict-mode-toggle"
-              className="text-xs text-text-muted hidden sm:inline cursor-pointer select-none"
-            >
-              Strict
-            </label>
-            <Switch
-              id="strict-mode-toggle"
-              checked={isStrictMode}
-              onCheckedChange={setIsStrictMode}
-            />
-          </div>
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <label
+                htmlFor="strict-mode-toggle"
+                className="text-xs text-text-muted hidden sm:inline cursor-pointer select-none"
+              >
+                Strict
+              </label>
+              <Switch
+                id="strict-mode-toggle"
+                checked={isStrictMode}
+                onCheckedChange={setIsStrictMode}
+                aria-label="Toggle Strict Mode"
+              />
+            </div>
+          </ToolbarTooltip>
         </div>
 
         {/* Spacer */}
@@ -467,32 +482,35 @@ export function CodeEditor() {
 
         {/* Copy and Reset */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-9 w-9"
-            onClick={handleCopy}
-            title="Copy Code"
-          >
-            {copied ? (
-              <Check className="h-4 w-4 text-success" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
-          </Button>
+          <ToolbarTooltip label="Copy code" align="end">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-9 w-9"
+              onClick={handleCopy}
+              aria-label="Copy code"
+            >
+              {copied ? (
+                <Check className="h-4 w-4 text-success" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </Button>
+          </ToolbarTooltip>
 
           <Dialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
-            <DialogTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-danger border-border hover:bg-danger/10 hover:text-danger hover:border-danger gap-2 px-2 sm:px-3"
-                title="Reset Code"
-              >
-                <RotateCcw className="h-4 w-4" />
-                <span>Reset</span>
-              </Button>
-            </DialogTrigger>
+            <ToolbarTooltip label="Reset code" align="end">
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-danger border-border hover:bg-danger/10 hover:text-danger hover:border-danger gap-2 px-2 sm:px-3"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  <span>Reset</span>
+                </Button>
+              </DialogTrigger>
+            </ToolbarTooltip>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Reset Code?</DialogTitle>

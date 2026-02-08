@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { Switch } from './ui/switch';
+import { ToolbarTooltip } from './ui/toolbar-tooltip';
 
 type Tab = 'code' | 'whiteboard';
 
@@ -214,20 +215,24 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                 </span>
                 {/* Connection type indicator */}
                 {status === 'connected' && connectionType !== 'unknown' && (
-                  <span
-                    className={`ml-1 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-semibold uppercase ${
-                      connectionType === 'p2p'
-                        ? 'bg-success/20 text-success'
-                        : 'bg-warning/20 text-warning'
-                    }`}
-                    title={
+                  <ToolbarTooltip
+                    label={
                       connectionType === 'p2p'
                         ? 'Direct peer-to-peer connection'
                         : 'Relayed via TURN server'
                     }
+                    align="start"
                   >
-                    {connectionType === 'p2p' ? 'P2P' : 'RELAY'}
-                  </span>
+                    <span
+                      className={`ml-1 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-semibold uppercase ${
+                        connectionType === 'p2p'
+                          ? 'bg-success/20 text-success'
+                          : 'bg-warning/20 text-warning'
+                      }`}
+                    >
+                      {connectionType === 'p2p' ? 'P2P' : 'RELAY'}
+                    </span>
+                  </ToolbarTooltip>
                 )}
               </div>
               {isHost && (
@@ -272,128 +277,155 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                 👥 {participants.length}
               </span>
               {/* New Session button */}
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setNewSessionDialogOpen(true)}
-                title="Start new session"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="w-4 h-4"
+              <ToolbarTooltip label="Start new session" align="end">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setNewSessionDialogOpen(true)}
+                  aria-label="Start new session"
                 >
-                  <path
-                    d="M11 8C11 7.44772 11.4477 7 12 7C12.5523 7 13 7.44771 13 8V11H16C16.5523 11 17 11.4477 17 12C17 12.5523 16.5523 13 16 13H13V16C13 16.5523 12.5523 17 12 17C11.4477 17 11 16.5523 11 16V13H8C7.44772 13 7 12.5523 7 12C7 11.4477 7.44771 11 8 11H11V8Z"
-                    fill="currentColor"
-                  />
-                  <path
-                    fillRule="evenodd"
-                    clipRule="evenodd"
-                    d="M23 4C23 2.34315 21.6569 1 20 1H4C2.34315 1 1 2.34315 1 4V20C1 21.6569 2.34315 23 4 23H20C21.6569 23 23 21.6569 23 20V4ZM21 4C21 3.44772 20.5523 3 20 3H4C3.44772 3 3 3.44772 3 4V20C3 20.5523 3.44772 21 4 21H20C20.5523 21 21 20.5523 21 20V4Z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 sm:w-auto sm:px-3 sm:gap-2"
-                onClick={handleCopy}
-                title="Copy session link"
-              >
-                {copied ? (
-                  <Check className="h-4 w-4 text-success" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-                <span className="hidden lg:inline">
-                  {copied ? 'Copied!' : 'Copy Link'}
-                </span>
-              </Button>
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="w-4 h-4"
+                  >
+                    <path
+                      d="M11 8C11 7.44772 11.4477 7 12 7C12.5523 7 13 7.44771 13 8V11H16C16.5523 11 17 11.4477 17 12C17 12.5523 16.5523 13 16 13H13V16C13 16.5523 12.5523 17 12 17C11.4477 17 11 16.5523 11 16V13H8C7.44772 13 7 12.5523 7 12C7 11.4477 7.44771 11 8 11H11V8Z"
+                      fill="currentColor"
+                    />
+                    <path
+                      fillRule="evenodd"
+                      clipRule="evenodd"
+                      d="M23 4C23 2.34315 21.6569 1 20 1H4C2.34315 1 1 2.34315 1 4V20C1 21.6569 2.34315 23 4 23H20C21.6569 23 23 21.6569 23 20V4ZM21 4C21 3.44772 20.5523 3 20 3H4C3.44772 3 3 3.44772 3 4V20C3 20.5523 3.44772 21 4 21H20C20.5523 21 21 20.5523 21 20V4Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </Button>
+              </ToolbarTooltip>
+              <ToolbarTooltip label="Copy session link" align="end">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 sm:w-auto sm:px-3 sm:gap-2"
+                  onClick={handleCopy}
+                  aria-label="Copy session link"
+                >
+                  {copied ? (
+                    <Check className="h-4 w-4 text-success" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                  <span className="hidden lg:inline">
+                    {copied ? 'Copied!' : 'Copy Link'}
+                  </span>
+                </Button>
+              </ToolbarTooltip>
 
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8"
-                onClick={toggleTheme}
-                title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              <ToolbarTooltip
+                label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+                align="end"
               >
-                {theme === 'dark' ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-              </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={toggleTheme}
+                  aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+                >
+                  {theme === 'dark' ? (
+                    <Sun className="h-4 w-4" />
+                  ) : (
+                    <Moon className="h-4 w-4" />
+                  )}
+                </Button>
+              </ToolbarTooltip>
               {/* GitHub link */}
-              <Button variant="outline" size="icon" className="h-8 w-8" asChild>
-                <a
-                  href="https://github.com/alexmc2/code-share"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="View source on GitHub"
+              <ToolbarTooltip label="View source on GitHub" align="end">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  asChild
                 >
-                  <GitHubIcon className="h-4 w-4" />
-                </a>
-              </Button>
+                  <a
+                    href="https://github.com/alexmc2/code-share"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="View source on GitHub"
+                  >
+                    <GitHubIcon className="h-4 w-4" />
+                  </a>
+                </Button>
+              </ToolbarTooltip>
               {/* Leave Session button */}
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setLeaveSessionDialogOpen(true)}
-                title="Leave session"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="w-4 h-4"
+              <ToolbarTooltip label="Leave session" align="end">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setLeaveSessionDialogOpen(true)}
+                  aria-label="Leave session"
                 >
-                  <path
-                    d="M8.46447 8.46447C8.07394 8.85499 8.07394 9.48816 8.46447 9.87868L10.5858 12L8.46447 14.1213C8.07394 14.5118 8.07394 15.145 8.46447 15.5355C8.85499 15.9261 9.48816 15.9261 9.87868 15.5355L12 13.4142L14.1213 15.5355C14.5118 15.9261 15.145 15.9261 15.5355 15.5355C15.9261 15.145 15.9261 14.5118 15.5355 14.1213L13.4142 12L15.5355 9.87868C15.9261 9.48816 15.9261 8.85499 15.5355 8.46447C15.145 8.07394 14.5118 8.07394 14.1213 8.46447L12 10.5858L9.87868 8.46447C9.48816 8.07394 8.85499 8.07394 8.46447 8.46447Z"
-                    fill="currentColor"
-                  />
-                  <path
-                    fillRule="evenodd"
-                    clipRule="evenodd"
-                    d="M23 4C23 2.34315 21.6569 1 20 1H4C2.34315 1 1 2.34315 1 4V20C1 21.6569 2.34315 23 4 23H20C21.6569 23 23 21.6569 23 20V4ZM21 4C21 3.44772 20.5523 3 20 3H4C3.44772 3 3 3.44772 3 4V20C3 20.5523 3.44772 21 4 21H20C20.5523 21 21 20.5523 21 20V4Z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </Button>
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="w-4 h-4"
+                  >
+                    <path
+                      d="M8.46447 8.46447C8.07394 8.85499 8.07394 9.48816 8.46447 9.87868L10.5858 12L8.46447 14.1213C8.07394 14.5118 8.07394 15.145 8.46447 15.5355C8.85499 15.9261 9.48816 15.9261 9.87868 15.5355L12 13.4142L14.1213 15.5355C14.5118 15.9261 15.145 15.9261 15.5355 15.5355C15.9261 15.145 15.9261 14.5118 15.5355 14.1213L13.4142 12L15.5355 9.87868C15.9261 9.48816 15.9261 8.85499 15.5355 8.46447C15.145 8.07394 14.5118 8.07394 14.1213 8.46447L12 10.5858L9.87868 8.46447C9.48816 8.07394 8.85499 8.07394 8.46447 8.46447Z"
+                      fill="currentColor"
+                    />
+                    <path
+                      fillRule="evenodd"
+                      clipRule="evenodd"
+                      d="M23 4C23 2.34315 21.6569 1 20 1H4C2.34315 1 1 2.34315 1 4V20C1 21.6569 2.34315 23 4 23H20C21.6569 23 23 21.6569 23 20V4ZM21 4C21 3.44772 20.5523 3 20 3H4C3.44772 3 3 3.44772 3 4V20C3 20.5523 3.44772 21 4 21H20C20.5523 21 21 20.5523 21 20V4Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </Button>
+              </ToolbarTooltip>
 
               {/* Mobile messages toggle */}
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 md:hidden"
-                onClick={() => setMobileDrawerOpen(true)}
-                title="Open messages"
-              >
-                <MessageSquare className="h-4 w-4" />
-              </Button>
+              <ToolbarTooltip label="Open messages" align="end">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 md:hidden"
+                  onClick={() => setMobileDrawerOpen(true)}
+                  aria-label="Open messages"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                </Button>
+              </ToolbarTooltip>
 
               {/* Desktop sidebar toggle */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 hidden md:flex lg:hidden"
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              <ToolbarTooltip
+                label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+                align="end"
               >
-                {sidebarCollapsed ? (
-                  <ChevronLeft className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-              </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 hidden md:flex lg:hidden"
+                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                  aria-label={
+                    sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'
+                  }
+                >
+                  {sidebarCollapsed ? (
+                    <ChevronLeft className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </Button>
+              </ToolbarTooltip>
             </div>
           </div>
 
@@ -476,14 +508,16 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
 
             {sidebarCollapsed ? (
               <div className="flex flex-col items-center py-4">
-                <button
-                  className="w-8 h-8 rounded-lg text-text-muted hover:text-text hover:bg-border/50 transition-colors
+                <ToolbarTooltip label="Expand sidebar" align="end">
+                  <button
+                    className="w-8 h-8 rounded-lg text-text-muted hover:text-text hover:bg-border/50 transition-colors
                            flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  onClick={() => setSidebarCollapsed(false)}
-                  title="Expand sidebar"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
+                    onClick={() => setSidebarCollapsed(false)}
+                    aria-label="Expand sidebar"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                </ToolbarTooltip>
                 <span className="text-xs text-text-muted mt-4 [writing-mode:vertical-lr] rotate-180">
                   Messages
                 </span>
@@ -499,26 +533,28 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
               <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
                 <h2 className="text-sm font-semibold text-text">Messages</h2>
                 <div className="flex items-center gap-2">
-                  <div
-                    className="flex items-center gap-1.5"
-                    title="Message sound"
-                  >
-                    <Bell className="w-3.5 h-3.5 text-text-muted" />
-                    <Switch
-                      checked={messageSoundEnabled}
-                      onCheckedChange={setMessageSoundEnabled}
-                      className="scale-75 origin-right"
-                    />
-                  </div>
-                  <button
-                    className="w-6 h-6 rounded flex items-center justify-center text-text-muted
+                  <ToolbarTooltip label="Message sound" align="end">
+                    <div className="flex items-center gap-1.5">
+                      <Bell className="w-3.5 h-3.5 text-text-muted" />
+                      <Switch
+                        checked={messageSoundEnabled}
+                        onCheckedChange={setMessageSoundEnabled}
+                        className="scale-75 origin-right"
+                        aria-label="Message sound"
+                      />
+                    </div>
+                  </ToolbarTooltip>
+                  <ToolbarTooltip label="Collapse sidebar" align="end">
+                    <button
+                      className="w-6 h-6 rounded flex items-center justify-center text-text-muted
                            hover:text-text hover:bg-panel-2 transition-colors
                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    onClick={() => setSidebarCollapsed(true)}
-                    title="Collapse sidebar"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
+                      onClick={() => setSidebarCollapsed(true)}
+                      aria-label="Collapse sidebar"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </ToolbarTooltip>
                 </div>
               </div>
               <Participants />
@@ -552,15 +588,13 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
               <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
                 <h2 className="text-sm font-semibold text-text">Messages</h2>
                 <div className="flex items-center gap-3">
-                  <div
-                    className="flex items-center gap-1.5"
-                    title="Message sound"
-                  >
+                  <div className="flex items-center gap-1.5">
                     <Bell className="w-3.5 h-3.5 text-text-muted" />
                     <Switch
                       checked={messageSoundEnabled}
                       onCheckedChange={setMessageSoundEnabled}
                       className="scale-75 origin-right"
+                      aria-label="Message sound"
                     />
                   </div>
                   <button
@@ -568,7 +602,6 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                            text-text-muted hover:text-text hover:bg-border/50 transition-colors
                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     onClick={() => setMobileDrawerOpen(false)}
-                    title="Close messages"
                   >
                     <X className="h-4 w-4" />
                   </button>

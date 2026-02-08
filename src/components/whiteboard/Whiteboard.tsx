@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import * as Y from 'yjs';
+import { ImagePlus, X } from 'lucide-react';
 import { useSession } from '../../lib/useSession';
 import { useTheme } from '../../lib/useTheme';
 import type { Tool, DrawOp, Point } from './types';
@@ -40,6 +41,11 @@ function isTypingInEditableField(target: EventTarget | null): boolean {
   );
 }
 
+const PASTE_TIP_STORAGE_KEY = 'code-share-whiteboard-paste-tip-seen-v1';
+const PASTE_TIP_ENTER_DELAY_MS = 250;
+const PASTE_TIP_AUTO_HIDE_MS = 15000;
+const PASTE_TIP_EXIT_MS = 240;
+
 export function Whiteboard() {
   const { doc } = useSession();
   const { isDark } = useTheme();
@@ -51,6 +57,22 @@ export function Whiteboard() {
   const [selectCursor, setSelectCursor] = useState('default');
   const selectCursorRef = useRef('default');
   const [zoomPercent, setZoomPercent] = useState(100);
+  const [showPasteTipToast, setShowPasteTipToast] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem(PASTE_TIP_STORAGE_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
+  const [pasteTipVisible, setPasteTipVisible] = useState(false);
+  const pasteTipDismissedRef = useRef(false);
+  const pasteTipExitTimerRef = useRef<number | undefined>(undefined);
+  const pasteShortcutLabel =
+    typeof navigator !== 'undefined' &&
+    /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent)
+      ? 'Cmd+V'
+      : 'Ctrl+V';
 
   // Wrap setTool to adjust size when switching to/from eraser
   const setTool = useCallback((newTool: Tool) => {
@@ -151,6 +173,47 @@ export function Whiteboard() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [refreshZoomPercent]);
+
+  const dismissPasteTipToast = useCallback(() => {
+    if (pasteTipDismissedRef.current) return;
+    pasteTipDismissedRef.current = true;
+    setPasteTipVisible(false);
+    try {
+      localStorage.setItem(PASTE_TIP_STORAGE_KEY, '1');
+    } catch {
+      // Ignore storage errors; this is a non-critical preference.
+    }
+    window.clearTimeout(pasteTipExitTimerRef.current);
+    pasteTipExitTimerRef.current = window.setTimeout(() => {
+      setShowPasteTipToast(false);
+    }, PASTE_TIP_EXIT_MS);
+  }, []);
+
+  // Cleanup paste-tip exit timer on unmount
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(pasteTipExitTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showPasteTipToast) {
+      return;
+    }
+
+    const enterTimer = window.setTimeout(() => {
+      setPasteTipVisible(true);
+    }, PASTE_TIP_ENTER_DELAY_MS);
+
+    const hideTimer = window.setTimeout(() => {
+      dismissPasteTipToast();
+    }, PASTE_TIP_ENTER_DELAY_MS + PASTE_TIP_AUTO_HIDE_MS);
+
+    return () => {
+      window.clearTimeout(enterTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, [dismissPasteTipToast, showPasteTipToast]);
 
   // Canvas & rendering
   const canvas = useWhiteboardCanvas(
@@ -519,6 +582,7 @@ export function Whiteboard() {
           const blob = item.getAsFile();
           if (blob) {
             await handleImageUpload(blob);
+            dismissPasteTipToast();
           }
           return;
         }
@@ -527,7 +591,7 @@ export function Whiteboard() {
 
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [handleImageUpload]);
+  }, [handleImageUpload, dismissPasteTipToast]);
 
   // Generate custom round cursor for pen and eraser tools
   const brushCursor = (() => {
@@ -573,7 +637,7 @@ export function Whiteboard() {
   );
 
   const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLCanvasElement>) => {
+    (e: WheelEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -616,6 +680,14 @@ export function Whiteboard() {
       scheduleViewportRender,
     ],
   );
+
+  // Attach wheel listener with { passive: false } so preventDefault() works
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   const handleZoomChange = useCallback(
     (nextPercent: number) => {
@@ -674,11 +746,46 @@ export function Whiteboard() {
         className="flex-1 min-h-0 relative overflow-hidden"
         ref={containerRef}
       >
+        {showPasteTipToast && (
+          <div className="pointer-events-none absolute inset-x-0 top-4 z-60 flex justify-center px-4">
+            <div
+              className={`pointer-events-auto w-full max-w-[min(95vw,38rem)] rounded-2xl border border-slate-300/90 bg-white/98 p-3.5 text-slate-700 shadow-[0_18px_36px_rgba(15,23,42,0.2)] backdrop-blur-sm transition-all duration-300 dark:border-slate-700/80 dark:bg-slate-900/96 dark:text-slate-100 dark:shadow-[0_18px_36px_rgba(2,6,23,0.5)] ${pasteTipVisible ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-2 opacity-0 scale-95'}`}
+              role="status"
+              aria-live="polite"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary">
+                  <ImagePlus className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold sm:text-base">
+                    Paste images directly into the whiteboard
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600 sm:text-sm dark:text-slate-300">
+                    Press{' '}
+                    <kbd className="rounded-md border border-slate-300/90 bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-900 dark:border-slate-600/70 dark:bg-slate-800 dark:text-slate-100">
+                      {pasteShortcutLabel}
+                    </kbd>{' '}
+                    anywhere while whiteboard is open.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={dismissPasteTipToast}
+                  className="shrink-0 rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                  aria-label="Dismiss paste tip"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <canvas
           ref={canvasRef}
           className="absolute inset-0 w-full h-full touch-none"
           style={{ cursor: activeCursor }}
-          onWheel={handleWheel}
           onPointerDown={pointers.handlePointerDown}
           onPointerMove={(e) => {
             pointers.handlePointerMove(e);
