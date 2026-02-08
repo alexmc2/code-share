@@ -471,6 +471,7 @@ export function CodeEditor() {
                 id="strict-mode-toggle"
                 checked={isStrictMode}
                 onCheckedChange={setIsStrictMode}
+                aria-label="Toggle Strict Mode"
               />
             </div>
           </ToolbarTooltip>
@@ -487,6 +488,7 @@ export function CodeEditor() {
               size="icon"
               className="h-9 w-9"
               onClick={handleCopy}
+              aria-label="Copy code"
             >
               {copied ? (
                 <Check className="h-4 w-4 text-success" />

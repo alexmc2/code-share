@@ -311,6 +311,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   size="icon"
                   className="h-8 w-8 sm:w-auto sm:px-3 sm:gap-2"
                   onClick={handleCopy}
+                  aria-label="Copy session link"
                 >
                   {copied ? (
                     <Check className="h-4 w-4 text-success" />
@@ -332,6 +333,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   size="icon"
                   className="h-8 w-8"
                   onClick={toggleTheme}
+                  aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
                 >
                   {theme === 'dark' ? (
                     <Sun className="h-4 w-4" />
@@ -352,6 +354,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                     href="https://github.com/alexmc2/code-share"
                     target="_blank"
                     rel="noopener noreferrer"
+                    aria-label="View source on GitHub"
                   >
                     <GitHubIcon className="h-4 w-4" />
                   </a>
@@ -394,6 +397,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   size="icon"
                   className="h-8 w-8 md:hidden"
                   onClick={() => setMobileDrawerOpen(true)}
+                  aria-label="Open messages"
                 >
                   <MessageSquare className="h-4 w-4" />
                 </Button>
@@ -409,6 +413,9 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                   size="icon"
                   className="h-8 w-8 hidden md:flex lg:hidden"
                   onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                  aria-label={
+                    sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'
+                  }
                 >
                   {sidebarCollapsed ? (
                     <ChevronLeft className="h-4 w-4" />
@@ -504,6 +511,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                     className="w-8 h-8 rounded-lg text-text-muted hover:text-text hover:bg-border/50 transition-colors
                            flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     onClick={() => setSidebarCollapsed(false)}
+                    aria-label="Expand sidebar"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
@@ -530,6 +538,7 @@ export function SessionLayout({ status, onCopyLink }: SessionLayoutProps) {
                         checked={messageSoundEnabled}
                         onCheckedChange={setMessageSoundEnabled}
                         className="scale-75 origin-right"
+                        aria-label="Message sound"
                       />
                     </div>
                   </ToolbarTooltip>

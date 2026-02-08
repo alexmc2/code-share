@@ -67,6 +67,7 @@ export function Whiteboard() {
   });
   const [pasteTipVisible, setPasteTipVisible] = useState(false);
   const pasteTipDismissedRef = useRef(false);
+  const pasteTipExitTimerRef = useRef<number | undefined>(undefined);
   const pasteShortcutLabel =
     typeof navigator !== 'undefined' &&
     /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent)
@@ -182,9 +183,17 @@ export function Whiteboard() {
     } catch {
       // Ignore storage errors; this is a non-critical preference.
     }
-    window.setTimeout(() => {
+    window.clearTimeout(pasteTipExitTimerRef.current);
+    pasteTipExitTimerRef.current = window.setTimeout(() => {
       setShowPasteTipToast(false);
     }, PASTE_TIP_EXIT_MS);
+  }, []);
+
+  // Cleanup paste-tip exit timer on unmount
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(pasteTipExitTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -628,7 +637,7 @@ export function Whiteboard() {
   );
 
   const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLCanvasElement>) => {
+    (e: WheelEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -671,6 +680,14 @@ export function Whiteboard() {
       scheduleViewportRender,
     ],
   );
+
+  // Attach wheel listener with { passive: false } so preventDefault() works
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   const handleZoomChange = useCallback(
     (nextPercent: number) => {
@@ -769,7 +786,6 @@ export function Whiteboard() {
           ref={canvasRef}
           className="absolute inset-0 w-full h-full touch-none"
           style={{ cursor: activeCursor }}
-          onWheel={handleWheel}
           onPointerDown={pointers.handlePointerDown}
           onPointerMove={(e) => {
             pointers.handlePointerMove(e);

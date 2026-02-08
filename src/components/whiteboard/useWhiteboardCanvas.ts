@@ -122,7 +122,7 @@ export function useWhiteboardCanvas(
     const worldCtx = worldCanvas.getContext('2d');
     const boundaryStrokeCtx = boundaryStrokeCanvas.getContext('2d');
     const visibleStrokeCtx = visibleStrokeCanvas.getContext('2d');
-    const fillCtx = fillCanvas.getContext('2d');
+    const fillCtx = fillCanvas.getContext('2d', { willReadFrequently: true });
 
     if (!worldCtx || !boundaryStrokeCtx || !visibleStrokeCtx || !fillCtx)
       return;
