@@ -60,14 +60,55 @@ export function useUndoRedo(
 
     if (action === 'transform') {
       const previousOp = entry.previousOp;
-      const index = ops.findIndex((op) => op.id === entry.op.id);
-      if (index !== -1 && previousOp) {
+      if (entry.groupedOps && entry.groupedOps.length > 0 && previousOp) {
+        // Grouped undo: revert primary + associated ops to original positions
+        const currentOps = opsArray.toArray();
+        const revertOps = [
+          {
+            currentId: entry.op.id,
+            prevOp: previousOp,
+            prevIndex: entry.index ?? 0,
+          },
+          ...entry.groupedOps.map((g) => ({
+            currentId: g.op.id,
+            prevOp: g.previousOp,
+            prevIndex: g.index,
+          })),
+        ];
+
+        // Find current indices to delete (descending)
+        const deletions: number[] = [];
+        for (const { currentId } of revertOps) {
+          const idx = currentOps.findIndex((o) => o.id === currentId);
+          if (idx !== -1) deletions.push(idx);
+        }
+        deletions.sort((a, b) => b - a);
+
+        // Sort insertions ascending by original index
+        revertOps.sort((a, b) => a.prevIndex - b.prevIndex);
+
         doc.transact(() => {
-          opsArray.delete(index, 1);
-          opsArray.insert(index, [previousOp]);
+          for (const idx of deletions) {
+            opsArray.delete(idx, 1);
+          }
+          for (const { prevOp, prevIndex } of revertOps) {
+            const idx = Math.min(prevIndex, opsArray.length);
+            opsArray.insert(idx, [prevOp]);
+          }
         });
+
         redoStack.current.push(entry);
         setCanRedo(true);
+      } else {
+        const index = ops.findIndex((op) => op.id === entry.op.id);
+        if (index !== -1 && previousOp) {
+          doc.transact(() => {
+            opsArray.delete(index, 1);
+            opsArray.insert(index, [previousOp]);
+          });
+          redoStack.current.push(entry);
+          setCanRedo(true);
+        }
       }
     } else if (action === 'add') {
       const index = ops.findIndex((op) => op.id === entry.op.id);
@@ -96,6 +137,17 @@ export function useUndoRedo(
             imageMap
           ) {
             imageMap.set(entry.op.imageId, entry.imageData);
+          }
+
+          // Restore grouped ops first (ascending by original index)
+          if (entry.groupedOps) {
+            const sorted = [...entry.groupedOps].sort(
+              (a, b) => a.index - b.index,
+            );
+            for (const g of sorted) {
+              const idx = Math.min(g.index, opsArray.length);
+              opsArray.insert(idx, [g.previousOp]);
+            }
           }
 
           if (
@@ -128,16 +180,41 @@ export function useUndoRedo(
     let applied = false;
 
     if (action === 'transform') {
-      const previousOp = entry.previousOp;
-      const index = previousOp
-        ? ops.findIndex((op) => op.id === previousOp.id)
-        : -1;
-      if (index !== -1) {
+      if (entry.groupedOps && entry.groupedOps.length > 0) {
+        // Grouped redo: move all ops back to end
+        const currentOps = opsArray.toArray();
+        const allIds = [
+          entry.previousOp!.id,
+          ...entry.groupedOps.map((g) => g.previousOp.id),
+        ];
+        const allNewOps = [entry.op, ...entry.groupedOps.map((g) => g.op)];
+
+        const indicesToDelete: number[] = [];
+        for (const id of allIds) {
+          const idx = currentOps.findIndex((o) => o.id === id);
+          if (idx !== -1) indicesToDelete.push(idx);
+        }
+        indicesToDelete.sort((a, b) => b - a);
+
         doc.transact(() => {
-          opsArray.delete(index, 1);
-          opsArray.insert(index, [entry.op]);
+          for (const idx of indicesToDelete) {
+            opsArray.delete(idx, 1);
+          }
+          opsArray.push(allNewOps);
         });
         applied = true;
+      } else {
+        const previousOp = entry.previousOp;
+        const index = previousOp
+          ? ops.findIndex((op) => op.id === previousOp.id)
+          : -1;
+        if (index !== -1) {
+          doc.transact(() => {
+            opsArray.delete(index, 1);
+            opsArray.insert(index, [entry.op]);
+          });
+          applied = true;
+        }
       }
     } else if (action === 'add') {
       const exists = ops.some((op) => op.id === entry.op.id);
@@ -168,7 +245,32 @@ export function useUndoRedo(
             }
             imageMap.delete(entry.op.imageId);
           }
-          opsArray.delete(index, 1);
+          // Also delete grouped ops (descending index for safety)
+          if (entry.groupedOps) {
+            // Refresh indices since array may have shifted
+            const currentOps = opsArray.toArray();
+            const groupIds = entry.groupedOps.map((g) => g.previousOp.id);
+            const groupIndices: number[] = [];
+            for (const gid of groupIds) {
+              const gi = currentOps.findIndex((o) => o.id === gid);
+              if (gi !== -1) groupIndices.push(gi);
+            }
+            // Delete primary first (we already have its index), then grouped
+            // But we need all indices relative to current state.
+            // Collect all indices, sort descending, delete
+            const primaryIdx = currentOps.findIndex(
+              (o) => o.id === entry.op.id,
+            );
+            const allDel = [...groupIndices, primaryIdx].filter(
+              (i) => i !== -1,
+            );
+            allDel.sort((a, b) => b - a);
+            for (const di of allDel) {
+              opsArray.delete(di, 1);
+            }
+          } else {
+            opsArray.delete(index, 1);
+          }
         });
         applied = true;
       }
