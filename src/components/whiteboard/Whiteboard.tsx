@@ -40,12 +40,14 @@ export function Whiteboard() {
   const [colour, setColour] = useState(isDark ? '#ffffff' : '#000000');
   const [size, setSize] = useState(5);
   const [selectCursor, setSelectCursor] = useState('default');
+  const selectCursorRef = useRef('default');
   const [zoomPercent, setZoomPercent] = useState(100);
 
   // Wrap setTool to adjust size when switching to/from eraser
   const setTool = useCallback((newTool: Tool) => {
     setToolRaw(newTool);
     if (newTool === 'select') {
+      selectCursorRef.current = 'default';
       setSelectCursor('default');
     }
     if (newTool === 'eraser') {
@@ -257,6 +259,7 @@ export function Whiteboard() {
 
       e.preventDefault();
       deleteSelectedImage();
+      selectCursorRef.current = 'default';
       setSelectCursor('default');
     };
 
@@ -520,7 +523,10 @@ export function Whiteboard() {
           transformRef.current.y,
       };
       const cursor = getHoverCursor(worldPos, transformRef.current);
-      setSelectCursor(cursor);
+      if (cursor !== selectCursorRef.current) {
+        selectCursorRef.current = cursor;
+        setSelectCursor(cursor);
+      }
     },
     [tool, transformRef, getHoverCursor],
   );
