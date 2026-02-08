@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { nanoid } from 'nanoid';
-import type { Point, DrawOp, Tool } from './types';
+import type { Point, DrawOp, Tool, UndoEntry } from './types';
 import type * as Y from 'yjs';
 
 export interface DrawingState {
@@ -21,8 +21,8 @@ export function useDrawing(
   transformRef: React.RefObject<{ x: number; y: number; scale: number }>,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   scheduleViewportRender: () => void,
-  undoStackRef: React.RefObject<DrawOp[]>,
-  redoStackRef: React.RefObject<DrawOp[]>,
+  undoStackRef: React.RefObject<UndoEntry[]>,
+  redoStackRef: React.RefObject<UndoEntry[]>,
   setCanUndo: React.Dispatch<React.SetStateAction<boolean>>,
   setCanRedo: React.Dispatch<React.SetStateAction<boolean>>,
   currentOpRef: React.RefObject<DrawOp | null>,
@@ -77,7 +77,7 @@ export function useDrawing(
           y1: pos.y,
         };
         opsArray.push([fillOp]);
-        undoStackRef.current.push(fillOp);
+        undoStackRef.current.push({ op: fillOp });
         redoStackRef.current = [];
         setCanUndo(true);
         setCanRedo(false);
@@ -173,7 +173,7 @@ export function useDrawing(
 
     // Always push to opsArray (eraseStroke always has points)
     opsArray.push([currentOpRef.current]);
-    undoStackRef.current.push(currentOpRef.current);
+    undoStackRef.current.push({ op: currentOpRef.current });
     redoStackRef.current = [];
     setCanUndo(true);
     setCanRedo(false);

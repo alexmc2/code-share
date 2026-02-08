@@ -24,6 +24,7 @@ export function useWhiteboardCanvas(
   canvasCssHeightRef: React.RefObject<number>,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   containerRef: React.RefObject<HTMLDivElement | null>,
+  getCachedImage?: (imageId: string) => ImageBitmap | undefined,
 ): WhiteboardCanvasState {
   // Offscreen canvases
   const worldCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -139,7 +140,58 @@ export function useWhiteboardCanvas(
       // Skip deleted ops
       if (deletedIds.has(op.id)) continue;
 
-      if (op.type === 'eraseStroke') {
+      if (op.type === 'image') {
+        // Draw image on the world canvas directly (above fills, below later strokes is fine
+        // since images composite on top after the fill layer anyway)
+        if (
+          op.imageId &&
+          op.x1 !== undefined &&
+          op.y1 !== undefined &&
+          op.x2 !== undefined &&
+          op.y2 !== undefined &&
+          getCachedImage
+        ) {
+          const bitmap = getCachedImage(op.imageId);
+          if (bitmap) {
+            // Draw on the visible stroke canvas so it composites above fills
+            visibleStrokeCtx.drawImage(
+              bitmap,
+              op.x1,
+              op.y1,
+              op.x2 - op.x1,
+              op.y2 - op.y1,
+            );
+          } else {
+            // Placeholder while loading
+            visibleStrokeCtx.save();
+            visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.15)';
+            visibleStrokeCtx.fillRect(
+              op.x1,
+              op.y1,
+              op.x2 - op.x1,
+              op.y2 - op.y1,
+            );
+            visibleStrokeCtx.strokeStyle = 'rgba(128, 128, 128, 0.4)';
+            visibleStrokeCtx.lineWidth = 2;
+            visibleStrokeCtx.strokeRect(
+              op.x1,
+              op.y1,
+              op.x2 - op.x1,
+              op.y2 - op.y1,
+            );
+            visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.6)';
+            visibleStrokeCtx.font = '14px sans-serif';
+            visibleStrokeCtx.textAlign = 'center';
+            visibleStrokeCtx.textBaseline = 'middle';
+            visibleStrokeCtx.fillText(
+              'Loading…',
+              (op.x1 + op.x2) / 2,
+              (op.y1 + op.y2) / 2,
+            );
+            visibleStrokeCtx.restore();
+          }
+        }
+      } else if (op.type === 'eraseStroke') {
         const bgColor = getBackgroundColor();
         drawEraseStrokePath(boundaryStrokeCtx, op);
         drawEraseStrokePath(visibleStrokeCtx, op);
@@ -174,7 +226,7 @@ export function useWhiteboardCanvas(
     // Order: fillCanvas (bottom) -> visibleStrokeCanvas (top)
     worldCtx.drawImage(fillCanvas, 0, 0);
     worldCtx.drawImage(visibleStrokeCanvas, 0, 0);
-  }, [opsArray, initOffscreenCanvases, getBackgroundColor]);
+  }, [opsArray, initOffscreenCanvases, getBackgroundColor, getCachedImage]);
 
   // Renders the viewport efficiently using physical pixels to prevent seams
   const renderViewport = useCallback(() => {

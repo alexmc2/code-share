@@ -1,5 +1,12 @@
 // Drawing operation types
-export type Tool = 'pen' | 'line' | 'rect' | 'circle' | 'eraser' | 'fill';
+export type Tool =
+  | 'select'
+  | 'pen'
+  | 'line'
+  | 'rect'
+  | 'circle'
+  | 'eraser'
+  | 'fill';
 
 export interface Point {
   x: number;
@@ -15,7 +22,15 @@ export interface PointerState {
 export interface DrawOp {
   id: string;
   ts: number;
-  type: 'path' | 'line' | 'rect' | 'circle' | 'erase' | 'fill' | 'eraseStroke';
+  type:
+    | 'path'
+    | 'line'
+    | 'rect'
+    | 'circle'
+    | 'erase'
+    | 'fill'
+    | 'eraseStroke'
+    | 'image';
   colour: string;
   size: number;
   points?: Point[];
@@ -24,6 +39,14 @@ export interface DrawOp {
   x2?: number;
   y2?: number;
   eraseIds?: string[];
+  imageId?: string; // Key into Y.Map('whiteboard-images')
+}
+
+// Undo/redo entry — previousOp is set when undoing a move/resize
+export interface UndoEntry {
+  op: DrawOp;
+  previousOp?: DrawOp;
+  imageData?: Uint8Array; // Stored for redo of image placement
 }
 
 export const COLOURS = [
@@ -58,3 +81,9 @@ export const CANVAS_HEIGHT = 3200;
 // Zoom limits
 export const MIN_SCALE = 0.25;
 export const MAX_SCALE = 4;
+
+// Image limits
+export const MAX_IMAGES = 20;
+
+// Resize handle positions
+export type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';

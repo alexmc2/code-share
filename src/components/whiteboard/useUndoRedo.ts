@@ -1,13 +1,13 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import type { DrawOp } from './types';
+import type { DrawOp, UndoEntry } from './types';
 import type * as Y from 'yjs';
 import type { Doc } from 'yjs';
 
 export interface UndoRedoState {
   canUndo: boolean;
   canRedo: boolean;
-  undoStack: React.RefObject<DrawOp[]>;
-  redoStack: React.RefObject<DrawOp[]>;
+  undoStack: React.RefObject<UndoEntry[]>;
+  redoStack: React.RefObject<UndoEntry[]>;
   setCanUndo: React.Dispatch<React.SetStateAction<boolean>>;
   setCanRedo: React.Dispatch<React.SetStateAction<boolean>>;
   handleUndo: () => void;
@@ -18,54 +18,109 @@ export interface UndoRedoState {
 export function useUndoRedo(
   doc: Doc,
   opsArray: Y.Array<DrawOp>,
+  imageMap?: Y.Map<Uint8Array>,
 ): UndoRedoState {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const undoStack = useRef<DrawOp[]>([]);
-  const redoStack = useRef<DrawOp[]>([]);
+  const undoStack = useRef<UndoEntry[]>([]);
+  const redoStack = useRef<UndoEntry[]>([]);
 
   // Clear canvas
   const handleClear = useCallback(() => {
     doc.transact(() => {
       opsArray.delete(0, opsArray.length);
+      // Also clear all images
+      if (imageMap) {
+        for (const key of Array.from(imageMap.keys())) {
+          imageMap.delete(key);
+        }
+      }
     });
     undoStack.current = [];
     redoStack.current = [];
     setCanUndo(false);
     setCanRedo(false);
-  }, [doc, opsArray]);
+  }, [doc, opsArray, imageMap]);
 
   // Undo last local op
   const handleUndo = useCallback(() => {
     if (undoStack.current.length === 0) return;
 
-    const lastOp = undoStack.current.pop();
-    if (!lastOp) return;
+    const entry = undoStack.current.pop();
+    if (!entry) return;
 
-    // Find and remove from opsArray
     const ops = opsArray.toArray();
-    const index = ops.findIndex((op) => op.id === lastOp.id);
-    if (index !== -1) {
-      opsArray.delete(index, 1);
-      redoStack.current.push(lastOp);
+
+    if (entry.previousOp) {
+      // This was a move/resize — delete edited op, re-insert original
+      const index = ops.findIndex((op) => op.id === entry.op.id);
+      if (index !== -1) {
+        doc.transact(() => {
+          opsArray.delete(index, 1);
+          opsArray.push([entry.previousOp!]);
+        });
+      }
+      redoStack.current.push(entry);
       setCanRedo(true);
+    } else {
+      // Standard draw/image op — find and remove
+      const index = ops.findIndex((op) => op.id === entry.op.id);
+      if (index !== -1) {
+        // If it's an image op, save the image data for redo and remove from Y.Map
+        if (entry.op.type === 'image' && entry.op.imageId && imageMap) {
+          const imageData = imageMap.get(entry.op.imageId);
+          if (imageData) {
+            entry.imageData = imageData;
+          }
+          imageMap.delete(entry.op.imageId);
+        }
+        opsArray.delete(index, 1);
+        redoStack.current.push(entry);
+        setCanRedo(true);
+      }
     }
 
     setCanUndo(undoStack.current.length > 0);
-  }, [opsArray]);
+  }, [doc, opsArray, imageMap]);
 
   // Redo
   const handleRedo = useCallback(() => {
     if (redoStack.current.length === 0) return;
 
-    const op = redoStack.current.pop();
-    if (!op) return;
+    const entry = redoStack.current.pop();
+    if (!entry) return;
 
-    opsArray.push([op]);
-    undoStack.current.push(op);
+    if (entry.previousOp) {
+      // Move/resize redo — delete the restored original, re-insert the moved version
+      const ops = opsArray.toArray();
+      const index = ops.findIndex((op) => op.id === entry.previousOp!.id);
+      if (index !== -1) {
+        doc.transact(() => {
+          opsArray.delete(index, 1);
+          opsArray.push([entry.op]);
+        });
+      }
+    } else {
+      // Standard draw/image op redo — re-push
+      if (
+        entry.op.type === 'image' &&
+        entry.op.imageId &&
+        entry.imageData &&
+        imageMap
+      ) {
+        doc.transact(() => {
+          imageMap!.set(entry.op.imageId!, entry.imageData!);
+          opsArray.push([entry.op]);
+        });
+      } else {
+        opsArray.push([entry.op]);
+      }
+    }
+
+    undoStack.current.push(entry);
     setCanUndo(true);
     setCanRedo(redoStack.current.length > 0);
-  }, [opsArray]);
+  }, [doc, opsArray, imageMap]);
 
   // Keyboard shortcuts for undo/redo
   useEffect(() => {

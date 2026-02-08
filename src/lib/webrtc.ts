@@ -10,6 +10,48 @@ export type DataChannelMessageHandler = (
 // Connection type: P2P (direct), relay (via TURN), or unknown
 export type ConnectionType = 'p2p' | 'relay' | 'unknown';
 
+// --- Chunking constants ---
+// Chrome enforces ~256KB SCTP message limit; we chunk above 64KB for safety
+const CHUNK_THRESHOLD = 64 * 1024; // 64 KB
+// Header: 1 byte flag + 4 bytes messageId + 2 bytes chunkIndex + 2 bytes totalChunks = 9 bytes
+const CHUNK_HEADER_SIZE = 9;
+const CHUNK_FLAG = 0xff; // First byte marker to distinguish chunked from raw messages
+const MAX_CHUNK_PAYLOAD = CHUNK_THRESHOLD - CHUNK_HEADER_SIZE;
+const CHUNK_REASSEMBLY_TIMEOUT = 30_000; // 30s cleanup for incomplete sets
+
+let nextChunkMessageId = 1;
+
+interface ChunkAssembly {
+  chunks: (Uint8Array | null)[];
+  received: number;
+  total: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+function encodeChunkedMessage(data: Uint8Array): Uint8Array[] {
+  const totalChunks = Math.ceil(data.length / MAX_CHUNK_PAYLOAD);
+  const messageId = nextChunkMessageId++;
+  const result: Uint8Array[] = [];
+
+  for (let i = 0; i < totalChunks; i++) {
+    const offset = i * MAX_CHUNK_PAYLOAD;
+    const payload = data.subarray(
+      offset,
+      Math.min(offset + MAX_CHUNK_PAYLOAD, data.length),
+    );
+    const chunk = new Uint8Array(CHUNK_HEADER_SIZE + payload.length);
+    const view = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    chunk[0] = CHUNK_FLAG;
+    view.setUint32(1, messageId);
+    view.setUint16(5, i);
+    view.setUint16(7, totalChunks);
+    chunk.set(payload, CHUNK_HEADER_SIZE);
+    result.push(chunk);
+  }
+
+  return result;
+}
+
 interface PeerConnection {
   peerId: string;
   connection: RTCPeerConnection;
@@ -18,6 +60,7 @@ interface PeerConnection {
   messageQueue: Uint8Array[]; // Queue for messages before channel open
   iceCandidateCount: number; // Track ICE candidates for debugging
   connectionType: ConnectionType; // Track if using relay or direct P2P
+  chunkAssemblies: Map<number, ChunkAssembly>; // Reassembly buffers per peer
 }
 
 export class WebRTCManager {
@@ -81,6 +124,7 @@ export class WebRTCManager {
       messageQueue: [],
       iceCandidateCount: 0,
       connectionType: 'unknown',
+      chunkAssemblies: new Map(),
     };
 
     this.peers.set(remotePeerId, peerConn);
@@ -122,6 +166,7 @@ export class WebRTCManager {
       messageQueue: [],
       iceCandidateCount: 0,
       connectionType: 'unknown',
+      chunkAssemblies: new Map(),
     };
 
     this.peers.set(fromPeerId, peerConn);
@@ -235,7 +280,7 @@ export class WebRTCManager {
       debugLog('webrtc', 'Data channel OPEN with:', peerConn.peerId);
       peerConn.isConnected = true;
 
-      // Flush any queued messages
+      // Flush any queued messages (with chunking support)
       if (peerConn.messageQueue.length > 0) {
         debugLog(
           'webrtc',
@@ -244,7 +289,7 @@ export class WebRTCManager {
         );
         for (const msg of peerConn.messageQueue) {
           try {
-            dataChannel.send(msg.buffer as ArrayBuffer);
+            this.sendBuffer(peerConn, msg);
           } catch (err) {
             debugLog('webrtc', 'Failed to flush queued message:', err);
           }
@@ -271,6 +316,18 @@ export class WebRTCManager {
         event.data instanceof ArrayBuffer
           ? new Uint8Array(event.data)
           : event.data;
+
+      // Check if this is a chunked message
+      if (
+        data instanceof Uint8Array &&
+        data.length > 0 &&
+        data[0] === CHUNK_FLAG &&
+        data.length >= CHUNK_HEADER_SIZE
+      ) {
+        this.handleChunkedMessage(peerConn, data);
+        return;
+      }
+
       debugLogData(
         'webrtc',
         'received',
@@ -283,6 +340,79 @@ export class WebRTCManager {
     dataChannel.onerror = (error) => {
       debugLog('webrtc', `Data channel error with ${peerConn.peerId}:`, error);
     };
+  }
+
+  // Send a single Uint8Array buffer over a data channel, chunking if needed
+  private sendBuffer(peerConn: PeerConnection, binaryData: Uint8Array): void {
+    const channel = peerConn.dataChannel;
+    if (!channel || channel.readyState !== 'open') return;
+
+    if (binaryData.length <= CHUNK_THRESHOLD) {
+      channel.send(binaryData.buffer as ArrayBuffer);
+    } else {
+      // Chunk the message
+      const chunks = encodeChunkedMessage(binaryData);
+      debugLog(
+        'webrtc',
+        `Chunking ${binaryData.length} bytes into ${chunks.length} chunks for:`,
+        peerConn.peerId,
+      );
+      for (const chunk of chunks) {
+        channel.send(chunk.buffer as ArrayBuffer);
+      }
+    }
+  }
+
+  // Reassemble chunked messages received from a peer
+  private handleChunkedMessage(
+    peerConn: PeerConnection,
+    data: Uint8Array,
+  ): void {
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const messageId = view.getUint32(1);
+    const chunkIndex = view.getUint16(5);
+    const totalChunks = view.getUint16(7);
+    const payload = data.subarray(CHUNK_HEADER_SIZE);
+
+    let assembly = peerConn.chunkAssemblies.get(messageId);
+    if (!assembly) {
+      assembly = {
+        chunks: new Array(totalChunks).fill(null),
+        received: 0,
+        total: totalChunks,
+        timer: setTimeout(() => {
+          debugLog(
+            'webrtc',
+            `Chunk assembly timeout for message ${messageId} from ${peerConn.peerId}`,
+          );
+          peerConn.chunkAssemblies.delete(messageId);
+        }, CHUNK_REASSEMBLY_TIMEOUT),
+      };
+      peerConn.chunkAssemblies.set(messageId, assembly);
+    }
+
+    if (!assembly.chunks[chunkIndex]) {
+      assembly.chunks[chunkIndex] = payload;
+      assembly.received++;
+    }
+
+    if (assembly.received === assembly.total) {
+      clearTimeout(assembly.timer);
+      peerConn.chunkAssemblies.delete(messageId);
+
+      // Concatenate all chunks
+      let totalLength = 0;
+      for (const chunk of assembly.chunks) totalLength += chunk!.length;
+      const fullMessage = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of assembly.chunks) {
+        fullMessage.set(chunk!, offset);
+        offset += chunk!.length;
+      }
+
+      debugLogData('webrtc', 'received', peerConn.peerId, fullMessage.length);
+      this.onMessageHandler?.(peerConn.peerId, fullMessage);
+    }
   }
 
   // Send data to a specific peer (queues if channel not open)
@@ -309,7 +439,7 @@ export class WebRTCManager {
     }
 
     try {
-      peerConn.dataChannel.send(binaryData.buffer as ArrayBuffer);
+      this.sendBuffer(peerConn, binaryData);
       debugLogData('webrtc', 'sent', peerId, binaryData.length);
       return true;
     } catch (err) {
@@ -326,7 +456,7 @@ export class WebRTCManager {
     for (const [peerId, peerConn] of this.peers) {
       if (peerConn.dataChannel?.readyState === 'open') {
         try {
-          peerConn.dataChannel.send(binaryData.buffer as ArrayBuffer);
+          this.sendBuffer(peerConn, binaryData);
         } catch (err) {
           debugLog('webrtc', `Failed to broadcast to ${peerId}:`, err);
         }
@@ -344,6 +474,11 @@ export class WebRTCManager {
       peerConn.dataChannel?.close();
       peerConn.connection.close();
       peerConn.messageQueue = []; // Clear queue
+      // Clean up chunk reassembly timers
+      for (const assembly of peerConn.chunkAssemblies.values()) {
+        clearTimeout(assembly.timer);
+      }
+      peerConn.chunkAssemblies.clear();
       this.peers.delete(peerId);
       debugLog('webrtc', 'Closed connection to:', peerId);
     }
