@@ -45,6 +45,7 @@ export function useWhiteboardCanvas(
   const rafIdRef = useRef<number | null>(null);
   const overlayRendererRef = useRef<OverlayRenderer | null>(null);
   const suppressedImageOpIdRef = useRef<string | null>(null);
+  const outsideWorldFillColorRef = useRef(isDark ? '#111827' : '#ffffff');
 
   // Get canvas context
   const getContext = useCallback(() => {
@@ -234,6 +235,11 @@ export function useWhiteboardCanvas(
       }
     }
 
+    // Match outside-world background to the fill layer's corner color so a
+    // background flood fill appears continuous across the visible viewport.
+    const cornerPixel = fillCtx.getImageData(0, 0, 1, 1).data;
+    outsideWorldFillColorRef.current = `rgba(${cornerPixel[0]}, ${cornerPixel[1]}, ${cornerPixel[2]}, ${cornerPixel[3] / 255})`;
+
     // Composite to world canvas (transparent background)
     worldCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
@@ -263,25 +269,36 @@ export function useWhiteboardCanvas(
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
 
-    // Clear canvas (background already in worldCanvas)
-    ctx.clearRect(0, 0, physWidth, physHeight);
+    // Fill background for areas outside the world canvas
+    ctx.fillStyle = outsideWorldFillColorRef.current;
+    ctx.fillRect(0, 0, physWidth, physHeight);
 
     // Source coordinates in world space (keep fractional values so committed
     // content and live previews use the same transform and do not "snap" on release)
-    const srcX = Math.max(0, transformRef.current.x);
-    const srcY = Math.max(0, transformRef.current.y);
+    const transform = transformRef.current;
+    const srcX = Math.max(0, transform.x);
+    const srcY = Math.max(0, transform.y);
 
     // Calculate how much of the world we're viewing
     const cssWidth = physWidth / dpr;
     const cssHeight = physHeight / dpr;
-    const viewWorldW = cssWidth / transformRef.current.scale;
-    const viewWorldH = cssHeight / transformRef.current.scale;
+    const viewWorldW = cssWidth / transform.scale;
+    const viewWorldH = cssHeight / transform.scale;
 
     // Clamp source dimensions to world canvas bounds
     const srcW = Math.min(viewWorldW, CANVAS_WIDTH - srcX);
     const srcH = Math.min(viewWorldH, CANVAS_HEIGHT - srcY);
 
-    // Draw world canvas on top
+    // Compute destination rectangle in physical pixels so the world-to-screen
+    // mapping matches the transform used by overlays and live previews.
+    // When the source is clamped (e.g. zoomed out past the world edge), the
+    // destination is proportionally smaller instead of stretching to fill.
+    const dstX = (srcX - transform.x) * transform.scale * dpr;
+    const dstY = (srcY - transform.y) * transform.scale * dpr;
+    const dstW = srcW * transform.scale * dpr;
+    const dstH = srcH * transform.scale * dpr;
+
+    // Draw world canvas
     if (srcW > 0 && srcH > 0) {
       ctx.drawImage(
         worldCanvas,
@@ -289,10 +306,10 @@ export function useWhiteboardCanvas(
         srcY,
         srcW,
         srcH,
-        0,
-        0,
-        physWidth,
-        physHeight,
+        dstX,
+        dstY,
+        dstW,
+        dstH,
       );
     }
 

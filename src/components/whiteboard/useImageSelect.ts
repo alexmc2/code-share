@@ -1,9 +1,14 @@
 import { useRef, useCallback } from 'react';
 import type { DrawOp, Point, ResizeHandle, UndoEntry } from './types';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from './types';
 import type * as Y from 'yjs';
 
 const HANDLE_RADIUS = 10;
 const MIN_IMAGE_SIZE = 30;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
 
 interface SelectionState {
   selectedOpId: string | null;
@@ -109,11 +114,18 @@ export function useImageSelect(
       bounds: { x1: number; y1: number; x2: number; y2: number },
       transform: { x: number; y: number; scale: number },
     ): ResizeHandle | null => {
+      const minX = Math.min(bounds.x1, bounds.x2);
+      const maxX = Math.max(bounds.x1, bounds.x2);
+      const minY = Math.min(bounds.y1, bounds.y2);
+      const maxY = Math.max(bounds.y1, bounds.y2);
+      const midX = (minX + maxX) / 2;
+      const midY = (minY + maxY) / 2;
+
       const corners: { handle: ResizeHandle; wx: number; wy: number }[] = [
-        { handle: 'nw', wx: bounds.x1, wy: bounds.y1 },
-        { handle: 'ne', wx: bounds.x2, wy: bounds.y1 },
-        { handle: 'sw', wx: bounds.x1, wy: bounds.y2 },
-        { handle: 'se', wx: bounds.x2, wy: bounds.y2 },
+        { handle: 'nw', wx: minX, wy: minY },
+        { handle: 'ne', wx: maxX, wy: minY },
+        { handle: 'sw', wx: minX, wy: maxY },
+        { handle: 'se', wx: maxX, wy: maxY },
       ];
 
       const handleWorldRadius = HANDLE_RADIUS / transform.scale;
@@ -122,6 +134,30 @@ export function useImageSelect(
         const dy = worldPos.y - wy;
         if (Math.hypot(dx, dy) <= handleWorldRadius) return handle;
       }
+
+      if (
+        worldPos.x >= minX + handleWorldRadius &&
+        worldPos.x <= maxX - handleWorldRadius
+      ) {
+        if (Math.abs(worldPos.y - minY) <= handleWorldRadius) return 'n';
+        if (Math.abs(worldPos.y - maxY) <= handleWorldRadius) return 's';
+      }
+
+      if (
+        worldPos.y >= minY + handleWorldRadius &&
+        worldPos.y <= maxY - handleWorldRadius
+      ) {
+        if (Math.abs(worldPos.x - minX) <= handleWorldRadius) return 'w';
+        if (Math.abs(worldPos.x - maxX) <= handleWorldRadius) return 'e';
+      }
+
+      const dxToMidX = Math.abs(worldPos.x - midX);
+      const dyToMidY = Math.abs(worldPos.y - midY);
+      if (dxToMidX <= handleWorldRadius && Math.abs(worldPos.y - minY) <= handleWorldRadius) return 'n';
+      if (dxToMidX <= handleWorldRadius && Math.abs(worldPos.y - maxY) <= handleWorldRadius) return 's';
+      if (dyToMidY <= handleWorldRadius && Math.abs(worldPos.x - minX) <= handleWorldRadius) return 'w';
+      if (dyToMidY <= handleWorldRadius && Math.abs(worldPos.x - maxX) <= handleWorldRadius) return 'e';
+
       return null;
     },
     [],
@@ -289,48 +325,149 @@ export function useImageSelect(
       const orig = drag.originalOp;
 
       if (drag.mode === 'move') {
-        preview.x1 = orig.x1! + dx;
-        preview.y1 = orig.y1! + dy;
-        preview.x2 = orig.x2! + dx;
-        preview.y2 = orig.y2! + dy;
-      } else if (drag.mode === 'resize' && drag.handle) {
-        const origW = orig.x2! - orig.x1!;
-        const origH = orig.y2! - orig.y1!;
-        const aspect = origW / origH;
+        const width = orig.x2! - orig.x1!;
+        const height = orig.y2! - orig.y1!;
 
+        let nextX1 = orig.x1! + dx;
+        let nextY1 = orig.y1! + dy;
+        let nextX2 = orig.x2! + dx;
+        let nextY2 = orig.y2! + dy;
+
+        if (width >= CANVAS_WIDTH) {
+          nextX1 = 0;
+          nextX2 = CANVAS_WIDTH;
+        } else if (nextX1 < 0) {
+          nextX1 = 0;
+          nextX2 = width;
+        } else if (nextX2 > CANVAS_WIDTH) {
+          nextX2 = CANVAS_WIDTH;
+          nextX1 = CANVAS_WIDTH - width;
+        }
+
+        if (height >= CANVAS_HEIGHT) {
+          nextY1 = 0;
+          nextY2 = CANVAS_HEIGHT;
+        } else if (nextY1 < 0) {
+          nextY1 = 0;
+          nextY2 = height;
+        } else if (nextY2 > CANVAS_HEIGHT) {
+          nextY2 = CANVAS_HEIGHT;
+          nextY1 = CANVAS_HEIGHT - height;
+        }
+
+        preview.x1 = nextX1;
+        preview.y1 = nextY1;
+        preview.x2 = nextX2;
+        preview.y2 = nextY2;
+      } else if (drag.mode === 'resize' && drag.handle) {
         let newX1 = orig.x1!;
         let newY1 = orig.y1!;
         let newX2 = orig.x2!;
         let newY2 = orig.y2!;
 
-        switch (drag.handle) {
-          case 'se':
-            newX2 = orig.x2! + dx;
-            newY2 = orig.y1! + (newX2 - orig.x1!) / aspect;
-            break;
-          case 'sw':
-            newX1 = orig.x1! + dx;
-            newY2 = orig.y1! + (newX2 - newX1) / aspect;
-            break;
-          case 'ne':
-            newX2 = orig.x2! + dx;
-            newY1 = orig.y2! - (newX2 - orig.x1!) / aspect;
-            break;
-          case 'nw':
-            newX1 = orig.x1! + dx;
-            newY1 = orig.y2! - (newX2 - newX1) / aspect;
-            break;
+        const isCorner =
+          drag.handle === 'nw' ||
+          drag.handle === 'ne' ||
+          drag.handle === 'sw' ||
+          drag.handle === 'se';
+
+        if (isCorner && !e.shiftKey) {
+          const aspect = (orig.x2! - orig.x1!) / (orig.y2! - orig.y1!);
+          const minWidth = Math.max(MIN_IMAGE_SIZE, MIN_IMAGE_SIZE * aspect);
+
+          let anchorX = orig.x1!;
+          let anchorY = orig.y1!;
+          let dirX: 1 | -1 = 1;
+          let dirY: 1 | -1 = 1;
+
+          switch (drag.handle) {
+            case 'nw':
+              anchorX = orig.x2!;
+              anchorY = orig.y2!;
+              dirX = -1;
+              dirY = -1;
+              break;
+            case 'ne':
+              anchorX = orig.x1!;
+              anchorY = orig.y2!;
+              dirX = 1;
+              dirY = -1;
+              break;
+            case 'sw':
+              anchorX = orig.x2!;
+              anchorY = orig.y1!;
+              dirX = -1;
+              dirY = 1;
+              break;
+            case 'se':
+            default:
+              anchorX = orig.x1!;
+              anchorY = orig.y1!;
+              dirX = 1;
+              dirY = 1;
+              break;
+          }
+
+          const widthFromPointer =
+            dirX === 1 ? worldPos.x - anchorX : anchorX - worldPos.x;
+          const heightFromPointer =
+            dirY === 1 ? worldPos.y - anchorY : anchorY - worldPos.y;
+
+          const widthFromHeight = heightFromPointer * aspect;
+          const targetWidth = Math.max(widthFromPointer, widthFromHeight);
+
+          const maxWidthByX =
+            dirX === 1 ? CANVAS_WIDTH - anchorX : anchorX;
+          const maxHeightByY =
+            dirY === 1 ? CANVAS_HEIGHT - anchorY : anchorY;
+          const maxWidthByY = maxHeightByY * aspect;
+          const maxWidth = Math.min(maxWidthByX, maxWidthByY);
+
+          const nextWidth = clamp(targetWidth, minWidth, maxWidth);
+          const nextHeight = nextWidth / aspect;
+
+          if (dirX === 1) {
+            newX1 = anchorX;
+            newX2 = anchorX + nextWidth;
+          } else {
+            newX1 = anchorX - nextWidth;
+            newX2 = anchorX;
+          }
+
+          if (dirY === 1) {
+            newY1 = anchorY;
+            newY2 = anchorY + nextHeight;
+          } else {
+            newY1 = anchorY - nextHeight;
+            newY2 = anchorY;
+          }
+        } else {
+          if (drag.handle.includes('w')) {
+            newX1 = clamp(orig.x1! + dx, 0, orig.x2! - MIN_IMAGE_SIZE);
+          }
+          if (drag.handle.includes('e')) {
+            newX2 = clamp(
+              orig.x2! + dx,
+              orig.x1! + MIN_IMAGE_SIZE,
+              CANVAS_WIDTH,
+            );
+          }
+          if (drag.handle.includes('n')) {
+            newY1 = clamp(orig.y1! + dy, 0, orig.y2! - MIN_IMAGE_SIZE);
+          }
+          if (drag.handle.includes('s')) {
+            newY2 = clamp(
+              orig.y2! + dy,
+              orig.y1! + MIN_IMAGE_SIZE,
+              CANVAS_HEIGHT,
+            );
+          }
         }
 
-        if (
-          Math.abs(newX2 - newX1) >= MIN_IMAGE_SIZE &&
-          Math.abs(newY2 - newY1) >= MIN_IMAGE_SIZE
-        ) {
-          preview.x1 = newX1;
-          preview.y1 = newY1;
-          preview.x2 = newX2;
-          preview.y2 = newY2;
-        }
+        preview.x1 = newX1;
+        preview.y1 = newY1;
+        preview.x2 = newX2;
+        preview.y2 = newY2;
       }
 
       selectionRef.current.selectionBounds = {
@@ -493,19 +630,23 @@ export function useImageSelect(
       ctx.setLineDash([]);
 
       const handleRadius = 6 * dpr;
-      const corners = [
+      const handles = [
         { x: px1, y: py1 },
         { x: px2, y: py1 },
         { x: px1, y: py2 },
         { x: px2, y: py2 },
+        { x: (px1 + px2) / 2, y: py1 },
+        { x: (px1 + px2) / 2, y: py2 },
+        { x: px1, y: (py1 + py2) / 2 },
+        { x: px2, y: (py1 + py2) / 2 },
       ];
 
-      for (const corner of corners) {
+      for (const handle of handles) {
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = '#3b82f6';
         ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
-        ctx.arc(corner.x, corner.y, handleRadius, 0, Math.PI * 2);
+        ctx.arc(handle.x, handle.y, handleRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
@@ -530,6 +671,8 @@ export function useImageSelect(
         if (handle) {
           if (handle === 'nw' || handle === 'se') return 'nwse-resize';
           if (handle === 'ne' || handle === 'sw') return 'nesw-resize';
+          if (handle === 'n' || handle === 's') return 'ns-resize';
+          if (handle === 'e' || handle === 'w') return 'ew-resize';
         }
       }
 

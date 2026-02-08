@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react';
 import type { Point, PointerState } from './types';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './types';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_SCALE, MAX_SCALE } from './types';
 
 export interface ViewportState {
   transformRef: React.RefObject<{ x: number; y: number; scale: number }>;
@@ -42,25 +42,43 @@ export function useViewport(
   const hasUserViewportChangeRef = useRef(false);
   const activePointersRef = useRef<Map<number, PointerState>>(new Map());
 
-  // Clamp viewport to world bounds using CSS pixels (not physical pixels).
+  // Clamp viewport to the whiteboard world bounds.
+  // When zoomed out enough that the viewport is larger than the world, allow
+  // a small negative origin range so the world can still be centered/panned.
   const clampTransform = useCallback(
     (x: number, y: number, scale: number) => {
       const cssWidth = canvasCssWidthRef.current;
       const cssHeight = canvasCssHeightRef.current;
 
       if (cssWidth <= 0 || cssHeight <= 0) {
-        return { x: 0, y: 0, scale };
+        const fallbackScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
+        return { x: 0, y: 0, scale: fallbackScale };
       }
 
-      const viewWorldW = cssWidth / scale;
-      const viewWorldH = cssHeight / scale;
+      // Dynamic floor prevents the viewport from becoming larger than the
+      // whiteboard world, which keeps drag limits intuitive at min zoom.
+      const minScaleForViewport = Math.max(
+        MIN_SCALE,
+        cssWidth / CANVAS_WIDTH,
+        cssHeight / CANVAS_HEIGHT,
+      );
+      const clampedScale = Math.max(
+        minScaleForViewport,
+        Math.min(MAX_SCALE, scale),
+      );
+
+      const viewWorldW = cssWidth / clampedScale;
+      const viewWorldH = cssHeight / clampedScale;
+
+      const minX = Math.min(0, CANVAS_WIDTH - viewWorldW);
       const maxX = Math.max(0, CANVAS_WIDTH - viewWorldW);
+      const minY = Math.min(0, CANVAS_HEIGHT - viewWorldH);
       const maxY = Math.max(0, CANVAS_HEIGHT - viewWorldH);
 
       return {
-        x: Math.max(0, Math.min(maxX, x)),
-        y: Math.max(0, Math.min(maxY, y)),
-        scale,
+        x: Math.max(minX, Math.min(maxX, x)),
+        y: Math.max(minY, Math.min(maxY, y)),
+        scale: clampedScale,
       };
     },
     [canvasCssWidthRef, canvasCssHeightRef],

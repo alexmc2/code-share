@@ -1,8 +1,16 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useSession } from '../../lib/useSession';
 import { useTheme } from '../../lib/useTheme';
-import type { Tool, DrawOp } from './types';
-import { SIZES, ERASER_SIZES, MAX_IMAGES } from './types';
+import type { Tool, DrawOp, Point } from './types';
+import {
+  SIZES,
+  ERASER_SIZES,
+  MAX_IMAGES,
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  MIN_SCALE,
+  MAX_SCALE,
+} from './types';
 import { useViewport } from './useViewport';
 import { useWhiteboardCanvas } from './useWhiteboardCanvas';
 import { useUndoRedo } from './useUndoRedo';
@@ -12,15 +20,26 @@ import { useWhiteboardImages } from './useWhiteboardImages';
 import { useImageSelect } from './useImageSelect';
 import { Toolbar } from './Toolbar';
 
+function normalizeWheelDelta(
+  delta: number,
+  deltaMode: number,
+  pageSize: number,
+): number {
+  if (deltaMode === 1) return delta * 16; // line units
+  if (deltaMode === 2) return delta * pageSize; // page units
+  return delta; // pixel units
+}
+
 export function Whiteboard() {
   const { doc } = useSession();
   const { isDark } = useTheme();
 
   // Tool state
   const [tool, setToolRaw] = useState<Tool>('pen');
-  const [colour, setColour] = useState('#ffffff');
+  const [colour, setColour] = useState(isDark ? '#ffffff' : '#000000');
   const [size, setSize] = useState(5);
   const [selectCursor, setSelectCursor] = useState('default');
+  const [zoomPercent, setZoomPercent] = useState(100);
 
   // Wrap setTool to adjust size when switching to/from eraser
   const setTool = useCallback((newTool: Tool) => {
@@ -68,15 +87,45 @@ export function Whiteboard() {
   const images = useWhiteboardImages(doc, opsArray);
 
   // Viewport (pan/zoom/transform)
-  const viewport = useViewport(canvasCssWidthRef, canvasCssHeightRef);
+  const {
+    transformRef,
+    isPanning,
+    lastPanPoint,
+    lastPinchDistance,
+    hasUserViewportChangeRef,
+    activePointersRef,
+    clampTransform,
+    updateViewportForResize,
+    getActiveTouchPoints,
+    getTouchCentroid,
+    getTouchDistance,
+  } = useViewport(canvasCssWidthRef, canvasCssHeightRef);
+
+  const setZoomFromScale = useCallback((scale: number) => {
+    const next = Math.round(scale * 100);
+    setZoomPercent((prev) => (prev === next ? prev : next));
+  }, []);
+
+  const refreshZoomPercent = useCallback(() => {
+    setZoomFromScale(transformRef.current.scale);
+  }, [setZoomFromScale, transformRef]);
+
+  useEffect(() => {
+    const onResize = () => {
+      requestAnimationFrame(refreshZoomPercent);
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [refreshZoomPercent]);
 
   // Canvas & rendering
   const canvas = useWhiteboardCanvas(
     isDark,
     opsArray,
-    viewport.transformRef,
+    transformRef,
     currentOp,
-    viewport.updateViewportForResize,
+    updateViewportForResize,
     canvasCssWidthRef,
     canvasCssHeightRef,
     canvasRef,
@@ -115,7 +164,7 @@ export function Whiteboard() {
     colour,
     size,
     opsArray,
-    viewport.transformRef,
+    transformRef,
     canvasRef,
     scheduleViewportRender,
     undoStackRef,
@@ -129,7 +178,7 @@ export function Whiteboard() {
   const imageSelect = useImageSelect(
     opsArray,
     images.imageMap,
-    viewport.transformRef,
+    transformRef,
     canvasRef,
     scheduleViewportRender,
     setSuppressedImageOpId,
@@ -192,9 +241,65 @@ export function Whiteboard() {
     return () => document.removeEventListener('keydown', handleDelete);
   }, [getSelectedOpId, deleteSelectedImage]);
 
+  // --- Spacebar + drag pan ---
+  const isSpaceHeldRef = useRef(false);
+  const [isSpaceHeld, setIsSpaceHeld] = useState(false);
+  const isSpaceDraggingRef = useRef(false);
+  const [isSpaceDragging, setIsSpaceDragging] = useState(false);
+  const spacePanStartRef = useRef<Point>({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== ' ' || e.repeat) return;
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      isSpaceHeldRef.current = true;
+      setIsSpaceHeld(true);
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== ' ') return;
+      isSpaceHeldRef.current = false;
+      isSpaceDraggingRef.current = false;
+      setIsSpaceHeld(false);
+      setIsSpaceDragging(false);
+    };
+
+    const handleBlur = () => {
+      isSpaceHeldRef.current = false;
+      isSpaceDraggingRef.current = false;
+      setIsSpaceHeld(false);
+      setIsSpaceDragging(false);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
   // Wrapped handlers that delegate to select tool or drawing tool
   const wrappedHandleStart = useCallback(
     (e: React.PointerEvent) => {
+      // Spacebar + drag pan (mouse/pen only)
+      if (isSpaceHeldRef.current && e.pointerType !== 'touch') {
+        isSpaceDraggingRef.current = true;
+        setIsSpaceDragging(true);
+        spacePanStartRef.current = { x: e.clientX, y: e.clientY };
+        canvasRef.current?.setPointerCapture(e.pointerId);
+        return;
+      }
       if (tool === 'select') {
         handleSelectStart(e);
       } else {
@@ -206,16 +311,42 @@ export function Whiteboard() {
 
   const wrappedHandleMove = useCallback(
     (e: React.PointerEvent) => {
+      if (isSpaceDraggingRef.current) {
+        const dx = e.clientX - spacePanStartRef.current.x;
+        const dy = e.clientY - spacePanStartRef.current.y;
+        spacePanStartRef.current = { x: e.clientX, y: e.clientY };
+
+        const t = transformRef.current;
+        const nextX = t.x - dx / t.scale;
+        const nextY = t.y - dy / t.scale;
+        transformRef.current = clampTransform(nextX, nextY, t.scale);
+        hasUserViewportChangeRef.current = true;
+        scheduleViewportRender();
+        return;
+      }
       if (tool === 'select') {
         handleSelectMove(e);
       } else {
         drawing.handleMove(e);
       }
     },
-    [tool, handleSelectMove, drawing],
+    [
+      tool,
+      handleSelectMove,
+      drawing,
+      transformRef,
+      clampTransform,
+      hasUserViewportChangeRef,
+      scheduleViewportRender,
+    ],
   );
 
   const wrappedHandleEnd = useCallback(() => {
+    if (isSpaceDraggingRef.current) {
+      isSpaceDraggingRef.current = false;
+      setIsSpaceDragging(false);
+      return;
+    }
     if (tool === 'select') {
       handleSelectEnd();
     } else {
@@ -226,22 +357,23 @@ export function Whiteboard() {
   // Pointer event dispatch
   const pointers = usePointerHandlers(
     canvasRef,
-    viewport.transformRef,
-    viewport.isPanning,
-    viewport.lastPanPoint,
-    viewport.lastPinchDistance,
-    viewport.hasUserViewportChangeRef,
-    viewport.activePointersRef,
-    viewport.clampTransform,
-    viewport.getActiveTouchPoints,
-    viewport.getTouchCentroid,
-    viewport.getTouchDistance,
+    transformRef,
+    isPanning,
+    lastPanPoint,
+    lastPinchDistance,
+    hasUserViewportChangeRef,
+    activePointersRef,
+    clampTransform,
+    getActiveTouchPoints,
+    getTouchCentroid,
+    getTouchDistance,
     drawing.isDrawing,
     currentOp,
     wrappedHandleStart,
     wrappedHandleMove,
     wrappedHandleEnd,
     scheduleViewportRender,
+    setZoomFromScale,
   );
 
   // --- Image upload handler ---
@@ -253,7 +385,7 @@ export function Whiteboard() {
       }
 
       try {
-        const transform = viewport.transformRef.current;
+        const transform = transformRef.current;
         const viewW = canvasCssWidthRef.current / transform.scale;
         const viewH = canvasCssHeightRef.current / transform.scale;
         const centerX = transform.x + viewW / 2;
@@ -289,7 +421,7 @@ export function Whiteboard() {
     },
     [
       images,
-      viewport.transformRef,
+      transformRef,
       undoStackRef,
       redoStackRef,
       setCanUndo,
@@ -358,22 +490,92 @@ export function Whiteboard() {
       const rect = canvas.getBoundingClientRect();
       const worldPos = {
         x:
-          (e.clientX - rect.left) / viewport.transformRef.current.scale +
-          viewport.transformRef.current.x,
+          (e.clientX - rect.left) / transformRef.current.scale +
+          transformRef.current.x,
         y:
-          (e.clientY - rect.top) / viewport.transformRef.current.scale +
-          viewport.transformRef.current.y,
+          (e.clientY - rect.top) / transformRef.current.scale +
+          transformRef.current.y,
       };
-      const cursor = getHoverCursor(
-        worldPos,
-        viewport.transformRef.current,
-      );
+      const cursor = getHoverCursor(worldPos, transformRef.current);
       setSelectCursor(cursor);
     },
-    [tool, viewport.transformRef, getHoverCursor],
+    [tool, transformRef, getHoverCursor],
   );
 
-  const activeCursor = tool === 'select' ? selectCursor : brushCursor;
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      e.preventDefault();
+
+      const rect = canvas.getBoundingClientRect();
+      const transform = transformRef.current;
+      const deltaY = normalizeWheelDelta(e.deltaY, e.deltaMode, rect.height);
+      if (!Number.isFinite(deltaY) || deltaY === 0) return;
+
+      // Zoom anchored at viewport center for predictable in/out behavior
+      const localX = rect.width / 2;
+      const localY = rect.height / 2;
+      const zoomFactor = Math.exp(-deltaY * 0.0015);
+      const minScaleForViewport = Math.max(
+        MIN_SCALE,
+        rect.width / CANVAS_WIDTH,
+        rect.height / CANVAS_HEIGHT,
+      );
+      const nextScale = Math.max(
+        minScaleForViewport,
+        Math.min(MAX_SCALE, transform.scale * zoomFactor),
+      );
+
+      const anchorWorldX = localX / transform.scale + transform.x;
+      const anchorWorldY = localY / transform.scale + transform.y;
+      const nextX = anchorWorldX - localX / nextScale;
+      const nextY = anchorWorldY - localY / nextScale;
+
+      transformRef.current = clampTransform(nextX, nextY, nextScale);
+      hasUserViewportChangeRef.current = true;
+      setZoomFromScale(transformRef.current.scale);
+      scheduleViewportRender();
+    },
+    [
+      transformRef,
+      clampTransform,
+      hasUserViewportChangeRef,
+      setZoomFromScale,
+      scheduleViewportRender,
+    ],
+  );
+
+  const handleZoomChange = useCallback(
+    (nextPercent: number) => {
+      const transform = transformRef.current;
+      const requestedScale = nextPercent / 100;
+      transformRef.current = clampTransform(
+        transform.x,
+        transform.y,
+        requestedScale,
+      );
+      hasUserViewportChangeRef.current = true;
+      setZoomFromScale(transformRef.current.scale);
+      scheduleViewportRender();
+    },
+    [
+      transformRef,
+      clampTransform,
+      hasUserViewportChangeRef,
+      setZoomFromScale,
+      scheduleViewportRender,
+    ],
+  );
+
+  const activeCursor = isSpaceHeld
+    ? isSpaceDragging
+      ? 'grabbing'
+      : 'grab'
+    : tool === 'select'
+      ? selectCursor
+      : brushCursor;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -381,12 +583,14 @@ export function Whiteboard() {
         tool={tool}
         colour={colour}
         size={size}
+        zoomPercent={zoomPercent}
         canUndo={canUndo}
         canRedo={canRedo}
         isMobile={isMobile}
         setTool={setTool}
         setColour={setColour}
         setSize={setSize}
+        onZoomChange={handleZoomChange}
         handleUndo={handleUndo}
         handleRedo={handleRedo}
         handleClear={handleClear}
@@ -402,6 +606,7 @@ export function Whiteboard() {
           ref={canvasRef}
           className="absolute inset-0 w-full h-full touch-none"
           style={{ cursor: activeCursor }}
+          onWheel={handleWheel}
           onPointerDown={pointers.handlePointerDown}
           onPointerMove={(e) => {
             pointers.handlePointerMove(e);

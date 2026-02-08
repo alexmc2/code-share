@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import type * as Y from 'yjs';
 import type { Doc } from 'yjs';
 import type { DrawOp } from './types';
-import { MAX_IMAGES } from './types';
+import { MAX_IMAGES, CANVAS_WIDTH, CANVAS_HEIGHT } from './types';
 import { processImage } from './image-processing';
 
 export interface WhiteboardImagesState {
@@ -198,10 +198,37 @@ export function useWhiteboardImages(
       const displayW = processed.width * ratio;
       const displayH = processed.height * ratio;
 
-      const x1 = centerX - displayW / 2;
-      const y1 = centerY - displayH / 2;
-      const x2 = centerX + displayW / 2;
-      const y2 = centerY + displayH / 2;
+      let x1 = centerX - displayW / 2;
+      let y1 = centerY - displayH / 2;
+      let x2 = centerX + displayW / 2;
+      let y2 = centerY + displayH / 2;
+
+      // Keep image placement within the whiteboard world so it remains reachable.
+      if (x1 < 0) {
+        const shift = -x1;
+        x1 += shift;
+        x2 += shift;
+      }
+      if (y1 < 0) {
+        const shift = -y1;
+        y1 += shift;
+        y2 += shift;
+      }
+      if (x2 > CANVAS_WIDTH) {
+        const shift = x2 - CANVAS_WIDTH;
+        x1 -= shift;
+        x2 -= shift;
+      }
+      if (y2 > CANVAS_HEIGHT) {
+        const shift = y2 - CANVAS_HEIGHT;
+        y1 -= shift;
+        y2 -= shift;
+      }
+
+      x1 = Math.max(0, x1);
+      y1 = Math.max(0, y1);
+      x2 = Math.min(CANVAS_WIDTH, x2);
+      y2 = Math.min(CANVAS_HEIGHT, y2);
 
       const op: DrawOp = {
         id: nanoid(8),

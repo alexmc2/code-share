@@ -78,8 +78,8 @@ export const ERASER_SIZES = [
 ];
 
 // Virtual canvas size
-export const CANVAS_WIDTH = 3200;
-export const CANVAS_HEIGHT = 3200;
+export const CANVAS_WIDTH = 3600;
+export const CANVAS_HEIGHT = 3600;
 
 // Zoom limits
 export const MIN_SCALE = 0.25;
@@ -89,4 +89,4 @@ export const MAX_SCALE = 4;
 export const MAX_IMAGES = 20;
 
 // Resize handle positions
-export type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
+export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';

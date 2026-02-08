@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -19,12 +19,14 @@ interface ToolbarProps {
   tool: Tool;
   colour: string;
   size: number;
+  zoomPercent: number;
   canUndo: boolean;
   canRedo: boolean;
   isMobile: boolean;
   setTool: (tool: Tool) => void;
   setColour: (colour: string) => void;
   setSize: (size: number) => void;
+  onZoomChange: (zoomPercent: number) => void;
   handleUndo: () => void;
   handleRedo: () => void;
   handleClear: () => void;
@@ -44,23 +46,39 @@ export function Toolbar({
   tool,
   colour,
   size,
+  zoomPercent,
   canUndo,
   canRedo,
   isMobile,
   setTool,
   setColour,
   setSize,
+  onZoomChange,
   handleUndo,
   handleRedo,
   handleClear,
   onImageUpload,
 }: ToolbarProps) {
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [zoomInput, setZoomInput] = useState(`${zoomPercent}`);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const onClear = () => {
     handleClear();
     setIsClearDialogOpen(false);
+  };
+
+  useEffect(() => {
+    setZoomInput(`${zoomPercent}`);
+  }, [zoomPercent]);
+
+  const commitZoomInput = () => {
+    const parsed = Number(zoomInput);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setZoomInput(`${zoomPercent}`);
+      return;
+    }
+    onZoomChange(parsed);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -130,7 +148,7 @@ export function Toolbar({
       </div>
 
       {/* Image upload */}
-      <div className="flex gap-1 items-center pr-3 border-r border-border">
+      <div className="flex gap-2 items-center pr-3 border-r border-border">
         <button
           className={`${toolButtonClass(false)}`}
           onClick={() => fileInputRef.current?.click()}
@@ -145,6 +163,22 @@ export function Toolbar({
           className="hidden"
           onChange={handleFileChange}
         />
+        <div className="flex items-center gap-1" title="Current zoom">
+          <input
+            value={zoomInput}
+            onChange={(e) => setZoomInput(e.target.value)}
+            onBlur={commitZoomInput}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                (e.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+            inputMode="numeric"
+            className="w-14 px-2 py-1 rounded bg-panel-2 border border-border text-text text-xs font-semibold text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label="Zoom percent"
+          />
+          <span className="text-text-muted text-xs font-semibold">%</span>
+        </div>
       </div>
 
       {/* Mobile pan hint - justified to far right on first row */}
