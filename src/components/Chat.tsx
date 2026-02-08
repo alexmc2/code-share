@@ -33,7 +33,7 @@ const EMOJI_PICKER_MIN_HEIGHT = 240;
 const EMOJI_PICKER_VIEWPORT_PADDING = 24;
 const EMOJI_PICKER_VIEWPORT_VERTICAL_PADDING = 140;
 const TOOLBAR_POPOVER_CHROME_CLASS =
-  'rounded-lg border border-slate-300/90 bg-white text-slate-700 shadow-[0_12px_22px_rgba(15,23,42,0.16)] dark:border-slate-700/80 dark:bg-slate-900 dark:text-slate-100 dark:shadow-[0_12px_22px_rgba(2,6,23,0.45)]';
+  'rounded-lg border border-slate-200 bg-white text-slate-700 shadow-[0_4px_16px_rgba(15,23,42,0.08)] dark:border-slate-700/80 dark:bg-slate-900 dark:text-slate-100 dark:shadow-[0_12px_22px_rgba(2,6,23,0.45)]';
 
 // Escape HTML to prevent XSS
 function escapeHtml(text: string): string {
@@ -557,7 +557,12 @@ export function Chat({ soundEnabled = true }: ChatProps) {
     if (!pendingPingRef.current) {
       removeUnlockListeners();
     }
-  }, [ensureAudioContext, resumeAudioContext, playPingTone, removeUnlockListeners]);
+  }, [
+    ensureAudioContext,
+    resumeAudioContext,
+    playPingTone,
+    removeUnlockListeners,
+  ]);
 
   const attachUnlockListeners = useCallback(() => {
     if (unlockListenersAttachedRef.current) return;
@@ -623,7 +628,12 @@ export function Chat({ soundEnabled = true }: ChatProps) {
 
     pendingPingRef.current = false;
     playPingTone(ctx);
-  }, [attachUnlockListeners, ensureAudioContext, resumeAudioContext, playPingTone]);
+  }, [
+    attachUnlockListeners,
+    ensureAudioContext,
+    resumeAudioContext,
+    playPingTone,
+  ]);
 
   // Get Y.Array for chat messages
   const chatArray = doc.getArray<ChatMessage>('chat');
