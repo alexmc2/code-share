@@ -11,7 +11,22 @@ import {
   DialogClose,
 } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { ImagePlus, MousePointer2, Layers, Layers2 } from 'lucide-react';
+import {
+  Circle,
+  Eraser,
+  ImagePlus,
+  Info,
+  Layers,
+  Layers2,
+  MousePointer2,
+  PaintBucket,
+  Pencil,
+  Redo2,
+  Slash,
+  Square,
+  Trash2,
+  Undo2,
+} from 'lucide-react';
 import type { Tool } from './types';
 import { COLOURS, SIZES, ERASER_SIZES } from './types';
 
@@ -36,13 +51,83 @@ interface ToolbarProps {
 }
 
 const toolButtonClass = (isActive: boolean) =>
-  `w-9 h-9 rounded-md flex items-center justify-center text-base transition-all
+  `h-9 w-9 rounded-xl border border-transparent flex items-center justify-center
+   text-base transition-all duration-150
    ${
      isActive
-       ? 'bg-primary border-primary text-white'
-       : 'bg-panel-2 border border-border text-text hover:bg-border/50'
+       ? 'bg-panel border-border text-text shadow-sm'
+       : 'text-text-muted hover:bg-panel hover:text-text'
    }
    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`;
+
+const toolbarSectionClass =
+  'flex items-center gap-1 rounded-2xl border border-border bg-panel-2 px-1.5 py-1';
+
+const sizeButtonClass = (isActive: boolean) =>
+  `h-8 rounded-lg px-2.5 text-xs font-semibold transition-all border
+   ${
+     isActive
+       ? 'bg-panel border-border text-text shadow-sm'
+       : 'border-transparent text-text-muted hover:bg-panel hover:text-text'
+   }
+   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`;
+
+const actionButtonClass = (danger = false) =>
+  `h-9 w-9 rounded-xl border border-transparent flex items-center justify-center
+   transition-all duration-150 focus-visible:outline-none focus-visible:ring-2
+   focus-visible:ring-primary disabled:opacity-40 disabled:cursor-not-allowed
+   ${
+     danger
+       ? 'text-danger hover:bg-danger/10'
+       : 'text-text-muted hover:bg-panel hover:text-text'
+   }
+   disabled:hover:bg-transparent`;
+
+interface ToolbarTooltipProps {
+  label: string;
+  children: React.ReactNode;
+  align?: 'center' | 'start' | 'end';
+  side?: 'top' | 'bottom';
+}
+
+function ToolbarTooltip({
+  label,
+  children,
+  align = 'center',
+  side = 'bottom',
+}: ToolbarTooltipProps) {
+  const alignClass =
+    align === 'start'
+      ? 'left-0'
+      : align === 'end'
+        ? 'right-0'
+        : 'left-1/2 -translate-x-1/2';
+  const sideClass =
+    side === 'top'
+      ? 'bottom-[calc(100%+10px)] -translate-y-1 group-hover/toolbar-hint:translate-y-0 group-focus-within/toolbar-hint:translate-y-0'
+      : 'top-[calc(100%+10px)] translate-y-1 group-hover/toolbar-hint:translate-y-0 group-focus-within/toolbar-hint:translate-y-0';
+  const arrowClass =
+    side === 'top'
+      ? 'absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-b border-r border-slate-300/90 bg-white dark:border-slate-700/80 dark:bg-slate-900'
+      : 'absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-l border-t border-slate-300/90 bg-white dark:border-slate-700/80 dark:bg-slate-900';
+
+  return (
+    <div className="group/toolbar-hint relative flex items-center">
+      {children}
+      <span
+        role="tooltip"
+        aria-hidden="true"
+        className={`pointer-events-none absolute z-70 hidden w-max max-w-64 whitespace-normal rounded-lg border border-slate-300/90 bg-white px-3 py-2 text-center text-sm font-medium leading-snug text-slate-700 opacity-0 shadow-[0_12px_22px_rgba(15,23,42,0.16)] transition-all duration-150 dark:border-slate-700/80 dark:bg-slate-900 dark:text-slate-100 dark:shadow-[0_12px_22px_rgba(2,6,23,0.45)] md:block group-hover/toolbar-hint:opacity-100 group-focus-within/toolbar-hint:opacity-100 ${alignClass} ${sideClass}`}
+      >
+        {label}
+        <span className={arrowClass} />
+      </span>
+    </div>
+  );
+}
+
+const infoPopoverClass =
+  'w-60 max-w-[85vw] px-3 py-2 text-sm';
 
 export function Toolbar({
   tool,
@@ -97,84 +182,104 @@ export function Toolbar({
   };
 
   return (
-    <div className="flex items-center gap-4 px-4 py-2 bg-panel border-b border-border flex-wrap">
+    <div className="flex items-center gap-3 px-4 py-2 bg-panel border-b border-border flex-wrap">
       {/* Tools */}
-      <div className="flex gap-1 items-center pr-3 border-r border-border">
-        <button
-          className={toolButtonClass(tool === 'select')}
-          onClick={() => setTool('select')}
-          title="Select (V) - move/resize images"
-        >
-          <MousePointer2 className="w-4 h-4" />
-        </button>
-        <button
-          className={toolButtonClass(tool === 'pen')}
-          onClick={() => setTool('pen')}
-          title="Pen (B)"
-        >
-          ✏️
-        </button>
-        <button
-          className={toolButtonClass(tool === 'line')}
-          onClick={() => setTool('line')}
-          title="Line (S cycles shapes)"
-        >
-          ╱
-        </button>
-        <button
-          className={toolButtonClass(tool === 'rect')}
-          onClick={() => setTool('rect')}
-          title="Rectangle (S cycles shapes)"
-        >
-          ▢
-        </button>
-        <button
-          className={toolButtonClass(tool === 'circle')}
-          onClick={() => setTool('circle')}
-          title="Circle (S cycles shapes)"
-        >
-          ◯
-        </button>
-        <button
-          className={toolButtonClass(tool === 'eraser')}
-          onClick={() => setTool('eraser')}
-          title="Eraser (E)"
-        >
-          🧹
-        </button>
-        <button
-          className={toolButtonClass(tool === 'fill')}
-          onClick={() => setTool('fill')}
-          title="Fill Bucket (G)"
-        >
-          🪣
-        </button>
+      <div className={toolbarSectionClass}>
+        <ToolbarTooltip label="Select (V) - move/resize images" align="start">
+          <button
+            className={toolButtonClass(tool === 'select')}
+            onClick={() => setTool('select')}
+            aria-label="Select tool"
+          >
+            <MousePointer2 className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip label="Pen (B)">
+          <button
+            className={toolButtonClass(tool === 'pen')}
+            onClick={() => setTool('pen')}
+            aria-label="Pen tool"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip label="Line (S cycles shapes)">
+          <button
+            className={toolButtonClass(tool === 'line')}
+            onClick={() => setTool('line')}
+            aria-label="Line tool"
+          >
+            <Slash className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip label="Rectangle (S cycles shapes)">
+          <button
+            className={toolButtonClass(tool === 'rect')}
+            onClick={() => setTool('rect')}
+            aria-label="Rectangle tool"
+          >
+            <Square className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip label="Circle (S cycles shapes)">
+          <button
+            className={toolButtonClass(tool === 'circle')}
+            onClick={() => setTool('circle')}
+            aria-label="Circle tool"
+          >
+            <Circle className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip label="Eraser (E)">
+          <button
+            className={toolButtonClass(tool === 'eraser')}
+            onClick={() => setTool('eraser')}
+            aria-label="Eraser tool"
+          >
+            <Eraser className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip label="Fill Bucket (G)">
+          <button
+            className={toolButtonClass(tool === 'fill')}
+            onClick={() => setTool('fill')}
+            aria-label="Fill tool"
+          >
+            <PaintBucket className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
       </div>
 
       {/* Image upload & layer ordering */}
-      <div className="flex gap-2 items-center pr-3 border-r border-border">
-        <button
-          className={`${toolButtonClass(false)}`}
-          onClick={() => fileInputRef.current?.click()}
-          title="Upload Image"
-        >
-          <ImagePlus className="w-4 h-4" />
-        </button>
-        <button
-          className={toolButtonClass(false)}
-          onClick={onToggleImagesOnTop}
-          title={
+      <div className={toolbarSectionClass}>
+        <ToolbarTooltip label="Upload Image">
+          <button
+            className={`${toolButtonClass(false)}`}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Upload image"
+          >
+            <ImagePlus className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip
+          label={
             imagesOnTop
               ? 'Images on top (click to respect draw order)'
               : 'Respecting draw order (click for images on top)'
           }
         >
-          {imagesOnTop ? (
-            <Layers className="w-4 h-4" />
-          ) : (
-            <Layers2 className="w-4 h-4" />
-          )}
-        </button>
+          <button
+            className={toolButtonClass(imagesOnTop)}
+            onClick={onToggleImagesOnTop}
+            aria-label="Toggle image layering mode"
+          >
+            {imagesOnTop ? (
+              <Layers className="h-4 w-4" />
+            ) : (
+              <Layers2 className="h-4 w-4" />
+            )}
+          </button>
+        </ToolbarTooltip>
         <input
           ref={fileInputRef}
           type="file"
@@ -182,22 +287,24 @@ export function Toolbar({
           className="hidden"
           onChange={handleFileChange}
         />
-        <div className="flex items-center gap-1" title="Current zoom">
-          <input
-            value={zoomInput}
-            onChange={(e) => setZoomInput(e.target.value)}
-            onBlur={commitZoomInput}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                (e.currentTarget as HTMLInputElement).blur();
-              }
-            }}
-            inputMode="numeric"
-            className="w-14 px-2 py-1 rounded bg-panel-2 border border-border text-text text-xs font-semibold text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label="Zoom percent"
-          />
-          <span className="text-text-muted text-xs font-semibold">%</span>
-        </div>
+        <ToolbarTooltip label="Current zoom">
+          <div className="flex items-center gap-1 rounded-xl bg-panel px-2 py-1">
+            <input
+              value={zoomInput}
+              onChange={(e) => setZoomInput(e.target.value)}
+              onBlur={commitZoomInput}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  (e.currentTarget as HTMLInputElement).blur();
+                }
+              }}
+              inputMode="numeric"
+              className="w-14 px-2 py-1 rounded-md border border-transparent bg-transparent text-text text-xs font-semibold text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label="Zoom percent"
+            />
+            <span className="text-text-muted text-xs font-semibold">%</span>
+          </div>
+        </ToolbarTooltip>
       </div>
 
       {/* Mobile pan hint - justified to far right on first row */}
@@ -205,24 +312,27 @@ export function Toolbar({
         <Popover>
           <PopoverTrigger asChild>
             <button
-              title="Pan hint"
-              className="w-7 h-7 ml-auto flex items-center justify-center rounded-full
-                bg-panel-2 border border-border text-text/80 text-base font-bold font-mono
-                hover:bg-border/50 transition-colors"
+              className={`${toolButtonClass(false)} ml-auto`}
+              aria-label="Pan hint"
             >
-              i
+              <Info className="h-4 w-4" />
             </button>
           </PopoverTrigger>
           <PopoverContent
             side="bottom"
             align="end"
-            className="w-auto max-w-50 p-3 text-sm"
+            className={infoPopoverClass}
           >
-            <p className="text-text-muted">
-              Use <span className="font-semibold text-text">two fingers</span>{' '}
+            <p className="leading-relaxed text-slate-600 dark:text-slate-200">
+              Use{' '}
+              <span className="font-semibold text-slate-900 dark:text-white">
+                two fingers
+              </span>{' '}
               to pan around the whiteboard.{' '}
-              <span className="font-semibold text-text">Pinch</span> to zoom
-              in/out.
+              <span className="font-semibold text-slate-900 dark:text-white">
+                Pinch
+              </span>{' '}
+              to zoom in or out.
             </p>
           </PopoverContent>
         </Popover>
@@ -230,20 +340,20 @@ export function Toolbar({
 
       {/* Colours - hidden when select tool is active */}
       {tool !== 'select' && (
-        <div className="flex gap-1 items-center pr-3 border-r border-border">
+        <div className={toolbarSectionClass}>
           {COLOURS.map((c) => (
             <button
               key={c}
-              className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110
+              className={`w-6 h-6 rounded-full border-2 transition-transform
               ${
                 colour === c
-                  ? 'border-white shadow-[0_0_0_2px_var(--primary)]'
-                  : 'border-transparent'
+                  ? 'border-panel scale-105 shadow-[0_0_0_1.5px_var(--primary)]'
+                  : 'border-transparent hover:scale-110'
               }
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
               style={{ backgroundColor: c }}
               onClick={() => setColour(c)}
-              title={c}
+              aria-label={`Set color ${c}`}
             />
           ))}
         </div>
@@ -251,17 +361,11 @@ export function Toolbar({
 
       {/* Sizes - hidden when select tool is active */}
       {tool !== 'select' && (
-        <div className="flex gap-1 items-center pr-3 border-r border-border">
+        <div className={toolbarSectionClass}>
           {(tool === 'eraser' ? ERASER_SIZES : SIZES).map((s) => (
             <button
               key={s.label}
-              className={`px-2 py-1 text-xs font-semibold rounded transition-all
-              ${
-                size === s.value
-                  ? 'bg-primary border-primary text-white'
-                  : 'bg-panel-2 border border-border text-text-muted hover:text-text hover:bg-border/50'
-              }
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
+              className={sizeButtonClass(size === s.value)}
               onClick={() => setSize(s.value)}
             >
               {s.label}
@@ -271,54 +375,39 @@ export function Toolbar({
       )}
 
       {/* Actions */}
-      <div className="flex gap-2 items-center">
-        <button
-          onClick={handleUndo}
-          disabled={!canUndo}
-          title="Undo"
-          className={`flex items-center justify-center rounded transition-all
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
-            disabled:opacity-40 disabled:cursor-not-allowed
-            ${
-              isMobile
-                ? 'w-9 h-9 text-base bg-panel-2 border border-border hover:bg-border/50'
-                : 'w-8 h-8 text-sm hover:bg-border/30'
-            }`}
-        >
-          ↩
-        </button>
-        <button
-          onClick={handleRedo}
-          disabled={!canRedo}
-          title="Redo"
-          className={`flex items-center justify-center rounded transition-all
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
-            disabled:opacity-40 disabled:cursor-not-allowed
-            ${
-              isMobile
-                ? 'w-9 h-9 text-base bg-panel-2 border border-border hover:bg-border/50'
-                : 'w-8 h-8 text-sm hover:bg-border/30'
-            }`}
-        >
-          ↪
-        </button>
+      <div className={toolbarSectionClass}>
+        <ToolbarTooltip label="Undo (Ctrl/Cmd+Z)">
+          <button
+            onClick={handleUndo}
+            disabled={!canUndo}
+            className={actionButtonClass()}
+            aria-label="Undo"
+          >
+            <Undo2 className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip label="Redo (Ctrl/Cmd+Shift+Z)">
+          <button
+            onClick={handleRedo}
+            disabled={!canRedo}
+            className={actionButtonClass()}
+            aria-label="Redo"
+          >
+            <Redo2 className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
 
         <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
-          <DialogTrigger asChild>
-            <button
-              title="Clear All"
-              className={`flex items-center justify-center rounded transition-all text-danger
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
-                hover:bg-danger/10
-                ${
-                  isMobile
-                    ? 'w-9 h-9 text-base bg-panel-2 border border-border'
-                    : 'w-8 h-8 text-sm'
-                }`}
-            >
-              🗑️
-            </button>
-          </DialogTrigger>
+          <ToolbarTooltip label="Clear All">
+            <DialogTrigger asChild>
+              <button
+                className={actionButtonClass(true)}
+                aria-label="Clear whiteboard"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </DialogTrigger>
+          </ToolbarTooltip>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Clear Whiteboard?</DialogTitle>
