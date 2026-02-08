@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
   DialogClose,
 } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { ImagePlus, MousePointer2, Layers, Layers2 } from 'lucide-react';
 import type { Tool } from './types';
 import { COLOURS, SIZES, ERASER_SIZES } from './types';
 
@@ -18,15 +19,20 @@ interface ToolbarProps {
   tool: Tool;
   colour: string;
   size: number;
+  zoomPercent: number;
   canUndo: boolean;
   canRedo: boolean;
   isMobile: boolean;
+  imagesOnTop: boolean;
   setTool: (tool: Tool) => void;
   setColour: (colour: string) => void;
   setSize: (size: number) => void;
+  onZoomChange: (zoomPercent: number) => void;
   handleUndo: () => void;
   handleRedo: () => void;
   handleClear: () => void;
+  onImageUpload?: (file: File) => void;
+  onToggleImagesOnTop?: () => void;
 }
 
 const toolButtonClass = (isActive: boolean) =>
@@ -42,27 +48,65 @@ export function Toolbar({
   tool,
   colour,
   size,
+  zoomPercent,
   canUndo,
   canRedo,
   isMobile,
+  imagesOnTop,
   setTool,
   setColour,
   setSize,
+  onZoomChange,
   handleUndo,
   handleRedo,
   handleClear,
+  onImageUpload,
+  onToggleImagesOnTop,
 }: ToolbarProps) {
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [zoomInput, setZoomInput] = useState(`${zoomPercent}`);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const onClear = () => {
     handleClear();
     setIsClearDialogOpen(false);
   };
 
+  useEffect(() => {
+    setZoomInput(`${zoomPercent}`);
+  }, [zoomPercent]);
+
+  const commitZoomInput = () => {
+    const parsed = Number(zoomInput);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setZoomInput(`${zoomPercent}`);
+      return;
+    }
+    onZoomChange(parsed);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onImageUpload) {
+      onImageUpload(file);
+    }
+    // Reset so the same file can be uploaded again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="flex items-center gap-4 px-4 py-2 bg-panel border-b border-border flex-wrap">
       {/* Tools */}
       <div className="flex gap-1 items-center pr-3 border-r border-border">
+        <button
+          className={toolButtonClass(tool === 'select')}
+          onClick={() => setTool('select')}
+          title="Select (move/resize images)"
+        >
+          <MousePointer2 className="w-4 h-4" />
+        </button>
         <button
           className={toolButtonClass(tool === 'pen')}
           onClick={() => setTool('pen')}
@@ -107,6 +151,55 @@ export function Toolbar({
         </button>
       </div>
 
+      {/* Image upload & layer ordering */}
+      <div className="flex gap-2 items-center pr-3 border-r border-border">
+        <button
+          className={`${toolButtonClass(false)}`}
+          onClick={() => fileInputRef.current?.click()}
+          title="Upload Image"
+        >
+          <ImagePlus className="w-4 h-4" />
+        </button>
+        <button
+          className={toolButtonClass(false)}
+          onClick={onToggleImagesOnTop}
+          title={
+            imagesOnTop
+              ? 'Images on top (click to respect draw order)'
+              : 'Respecting draw order (click for images on top)'
+          }
+        >
+          {imagesOnTop ? (
+            <Layers className="w-4 h-4" />
+          ) : (
+            <Layers2 className="w-4 h-4" />
+          )}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <div className="flex items-center gap-1" title="Current zoom">
+          <input
+            value={zoomInput}
+            onChange={(e) => setZoomInput(e.target.value)}
+            onBlur={commitZoomInput}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                (e.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+            inputMode="numeric"
+            className="w-14 px-2 py-1 rounded bg-panel-2 border border-border text-text text-xs font-semibold text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label="Zoom percent"
+          />
+          <span className="text-text-muted text-xs font-semibold">%</span>
+        </div>
+      </div>
+
       {/* Mobile pan hint - justified to far right on first row */}
       {isMobile && (
         <Popover>
@@ -135,43 +228,47 @@ export function Toolbar({
         </Popover>
       )}
 
-      {/* Colours */}
-      <div className="flex gap-1 items-center pr-3 border-r border-border">
-        {COLOURS.map((c) => (
-          <button
-            key={c}
-            className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110
+      {/* Colours - hidden when select tool is active */}
+      {tool !== 'select' && (
+        <div className="flex gap-1 items-center pr-3 border-r border-border">
+          {COLOURS.map((c) => (
+            <button
+              key={c}
+              className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110
               ${
                 colour === c
                   ? 'border-white shadow-[0_0_0_2px_var(--primary)]'
                   : 'border-transparent'
               }
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
-            style={{ backgroundColor: c }}
-            onClick={() => setColour(c)}
-            title={c}
-          />
-        ))}
-      </div>
+              style={{ backgroundColor: c }}
+              onClick={() => setColour(c)}
+              title={c}
+            />
+          ))}
+        </div>
+      )}
 
-      {/* Sizes - use different sizes for eraser vs other tools */}
-      <div className="flex gap-1 items-center pr-3 border-r border-border">
-        {(tool === 'eraser' ? ERASER_SIZES : SIZES).map((s) => (
-          <button
-            key={s.label}
-            className={`px-2 py-1 text-xs font-semibold rounded transition-all
+      {/* Sizes - hidden when select tool is active */}
+      {tool !== 'select' && (
+        <div className="flex gap-1 items-center pr-3 border-r border-border">
+          {(tool === 'eraser' ? ERASER_SIZES : SIZES).map((s) => (
+            <button
+              key={s.label}
+              className={`px-2 py-1 text-xs font-semibold rounded transition-all
               ${
                 size === s.value
                   ? 'bg-primary border-primary text-white'
                   : 'bg-panel-2 border border-border text-text-muted hover:text-text hover:bg-border/50'
               }
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
-            onClick={() => setSize(s.value)}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+              onClick={() => setSize(s.value)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex gap-2 items-center">

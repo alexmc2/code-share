@@ -1,6 +1,11 @@
 import { useCallback } from 'react';
 import type { DrawOp, Point, PointerState } from './types';
-import { MIN_SCALE, MAX_SCALE } from './types';
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  MIN_SCALE,
+  MAX_SCALE,
+} from './types';
 
 export interface PointerHandlers {
   handlePointerDown: (e: React.PointerEvent) => void;
@@ -37,6 +42,7 @@ export function usePointerHandlers(
   handleEnd: () => void,
   // Canvas rendering
   scheduleViewportRender: () => void,
+  onScaleChange?: (scale: number) => void,
 ): PointerHandlers {
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -76,6 +82,7 @@ export function usePointerHandlers(
         return;
       }
 
+      canvas.setPointerCapture(e.pointerId);
       handleStart(e);
     },
     [
@@ -127,8 +134,13 @@ export function usePointerHandlers(
             const currentDistance = getTouchDistance(touchPoints);
             if (lastPinchDistanceRef.current > 0 && currentDistance > 0) {
               const pinchRatio = currentDistance / lastPinchDistanceRef.current;
-              const newScale = Math.max(
+              const minScaleForViewport = Math.max(
                 MIN_SCALE,
+                rect.width / CANVAS_WIDTH,
+                rect.height / CANVAS_HEIGHT,
+              );
+              const newScale = Math.max(
+                minScaleForViewport,
                 Math.min(MAX_SCALE, nextScale * pinchRatio),
               );
 
@@ -156,8 +168,15 @@ export function usePointerHandlers(
           nextY -= deltaCy / nextScale;
 
           // Clamp CSS size
+          const prevScale = transformRef.current.scale;
           transformRef.current = clampTransform(nextX, nextY, nextScale);
           hasUserViewportChangeRef.current = true;
+          if (
+            onScaleChange &&
+            transformRef.current.scale !== prevScale
+          ) {
+            onScaleChange(transformRef.current.scale);
+          }
 
           scheduleViewportRender();
           return;
@@ -183,6 +202,7 @@ export function usePointerHandlers(
       getTouchDistance,
       handleMove,
       scheduleViewportRender,
+      onScaleChange,
     ],
   );
 
@@ -244,10 +264,14 @@ export function usePointerHandlers(
   const handlePointerLeave = useCallback(
     (e: React.PointerEvent) => {
       if (e.pointerType !== 'touch') {
+        const canvas = canvasRef.current;
+        if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+          return;
+        }
         handleEnd();
       }
     },
-    [handleEnd],
+    [canvasRef, handleEnd],
   );
 
   return {

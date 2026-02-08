@@ -1,5 +1,12 @@
 // Drawing operation types
-export type Tool = 'pen' | 'line' | 'rect' | 'circle' | 'eraser' | 'fill';
+export type Tool =
+  | 'select'
+  | 'pen'
+  | 'line'
+  | 'rect'
+  | 'circle'
+  | 'eraser'
+  | 'fill';
 
 export interface Point {
   x: number;
@@ -15,7 +22,15 @@ export interface PointerState {
 export interface DrawOp {
   id: string;
   ts: number;
-  type: 'path' | 'line' | 'rect' | 'circle' | 'erase' | 'fill' | 'eraseStroke';
+  type:
+    | 'path'
+    | 'line'
+    | 'rect'
+    | 'circle'
+    | 'erase'
+    | 'fill'
+    | 'eraseStroke'
+    | 'image';
   colour: string;
   size: number;
   points?: Point[];
@@ -24,6 +39,17 @@ export interface DrawOp {
   x2?: number;
   y2?: number;
   eraseIds?: string[];
+  imageId?: string; // Key into Y.Map('whiteboard-images')
+}
+
+export type UndoAction = 'add' | 'transform' | 'delete';
+
+export interface UndoEntry {
+  action?: UndoAction;
+  op: DrawOp;
+  previousOp?: DrawOp;
+  imageData?: Uint8Array; // Stored for redo of image placement
+  index?: number; // Optional original index for restoration (e.g., delete undo)
 }
 
 export const COLOURS = [
@@ -52,9 +78,15 @@ export const ERASER_SIZES = [
 ];
 
 // Virtual canvas size
-export const CANVAS_WIDTH = 3200;
-export const CANVAS_HEIGHT = 3200;
+export const CANVAS_WIDTH = 3600;
+export const CANVAS_HEIGHT = 3600;
 
 // Zoom limits
 export const MIN_SCALE = 0.25;
 export const MAX_SCALE = 4;
+
+// Image limits
+export const MAX_IMAGES = 20;
+
+// Resize handle positions
+export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';

@@ -9,9 +9,18 @@ import {
 import { floodFillWithBoundary } from './flood-fill';
 import type * as Y from 'yjs';
 
+type OverlayRenderer = (
+  ctx: CanvasRenderingContext2D,
+  transform: { x: number; y: number; scale: number },
+  dpr: number,
+) => void;
+
 export interface WhiteboardCanvasState {
   getBackgroundColor: () => string;
   scheduleViewportRender: () => void;
+  rebuildAndRender: () => void;
+  setOverlayRenderer: (renderer: OverlayRenderer | null) => void;
+  setSuppressedImageOpId: (opId: string | null) => void;
 }
 
 export function useWhiteboardCanvas(
@@ -24,6 +33,8 @@ export function useWhiteboardCanvas(
   canvasCssHeightRef: React.RefObject<number>,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   containerRef: React.RefObject<HTMLDivElement | null>,
+  getCachedImage?: (imageId: string) => ImageBitmap | undefined,
+  imagesOnTop?: boolean,
 ): WhiteboardCanvasState {
   // Offscreen canvases
   const worldCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -33,6 +44,9 @@ export function useWhiteboardCanvas(
 
   // rAF scheduling
   const rafIdRef = useRef<number | null>(null);
+  const overlayRendererRef = useRef<OverlayRenderer | null>(null);
+  const suppressedImageOpIdRef = useRef<string | null>(null);
+  const outsideWorldFillColorRef = useRef(isDark ? '#111827' : '#ffffff');
 
   // Get canvas context
   const getContext = useCallback(() => {
@@ -127,6 +141,9 @@ export function useWhiteboardCanvas(
     const deletedIds = new Set<string>();
     const ops = opsArray.toArray();
 
+    // Collect image ops for deferred rendering in "images on top" mode
+    const deferredImages: DrawOp[] = [];
+
     for (const op of ops) {
       // Handle legacy erase ops: add eraseIds to deleted set
       if (op.type === 'erase' && op.eraseIds) {
@@ -139,7 +156,68 @@ export function useWhiteboardCanvas(
       // Skip deleted ops
       if (deletedIds.has(op.id)) continue;
 
-      if (op.type === 'eraseStroke') {
+      if (op.type === 'image') {
+        if (suppressedImageOpIdRef.current === op.id) {
+          continue;
+        }
+
+        if (imagesOnTop) {
+          // Defer image drawing to after all strokes/fills
+          deferredImages.push(op);
+          continue;
+        }
+
+        // "Respect order" mode: composite fill canvas so far, then draw image
+        // This ensures fills done before this image appear below it,
+        // and strokes/fills done after will appear above it.
+        if (
+          op.imageId &&
+          op.x1 !== undefined &&
+          op.y1 !== undefined &&
+          op.x2 !== undefined &&
+          op.y2 !== undefined &&
+          getCachedImage
+        ) {
+          const bitmap = getCachedImage(op.imageId);
+          if (bitmap) {
+            visibleStrokeCtx.drawImage(
+              bitmap,
+              op.x1,
+              op.y1,
+              op.x2 - op.x1,
+              op.y2 - op.y1,
+            );
+          } else {
+            // Placeholder while loading
+            visibleStrokeCtx.save();
+            visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.15)';
+            visibleStrokeCtx.fillRect(
+              op.x1,
+              op.y1,
+              op.x2 - op.x1,
+              op.y2 - op.y1,
+            );
+            visibleStrokeCtx.strokeStyle = 'rgba(128, 128, 128, 0.4)';
+            visibleStrokeCtx.lineWidth = 2;
+            visibleStrokeCtx.strokeRect(
+              op.x1,
+              op.y1,
+              op.x2 - op.x1,
+              op.y2 - op.y1,
+            );
+            visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.6)';
+            visibleStrokeCtx.font = '14px sans-serif';
+            visibleStrokeCtx.textAlign = 'center';
+            visibleStrokeCtx.textBaseline = 'middle';
+            visibleStrokeCtx.fillText(
+              'Loading…',
+              (op.x1 + op.x2) / 2,
+              (op.y1 + op.y2) / 2,
+            );
+            visibleStrokeCtx.restore();
+          }
+        }
+      } else if (op.type === 'eraseStroke') {
         const bgColor = getBackgroundColor();
         drawEraseStrokePath(boundaryStrokeCtx, op);
         drawEraseStrokePath(visibleStrokeCtx, op);
@@ -153,6 +231,20 @@ export function useWhiteboardCanvas(
             CANVAS_WIDTH,
             CANVAS_HEIGHT,
           );
+
+          // In "respect order" mode, snapshot fill canvas before the fill so we
+          // can extract only the newly-filled pixels and composite them onto
+          // visibleStrokeCanvas at this z-position.
+          let preFillData: ImageData | null = null;
+          if (!imagesOnTop) {
+            preFillData = fillCtx.getImageData(
+              0,
+              0,
+              CANVAS_WIDTH,
+              CANVAS_HEIGHT,
+            );
+          }
+
           floodFillWithBoundary(
             fillCtx,
             currentStrokeData,
@@ -160,6 +252,47 @@ export function useWhiteboardCanvas(
             op.y1,
             op.colour,
           );
+
+          if (!imagesOnTop && preFillData) {
+            const postFillData = fillCtx.getImageData(
+              0,
+              0,
+              CANVAS_WIDTH,
+              CANVAS_HEIGHT,
+            );
+            const pre = preFillData.data;
+            const post = postFillData.data;
+
+            // Build a delta image with only the pixels changed by this fill
+            const deltaData = fillCtx.createImageData(
+              CANVAS_WIDTH,
+              CANVAS_HEIGHT,
+            );
+            const dst = deltaData.data;
+
+            for (let i = 0; i < pre.length; i += 4) {
+              if (
+                pre[i] !== post[i] ||
+                pre[i + 1] !== post[i + 1] ||
+                pre[i + 2] !== post[i + 2] ||
+                pre[i + 3] !== post[i + 3]
+              ) {
+                dst[i] = post[i];
+                dst[i + 1] = post[i + 1];
+                dst[i + 2] = post[i + 2];
+                dst[i + 3] = post[i + 3];
+              }
+              // Unchanged pixels remain transparent (alpha = 0)
+            }
+
+            // Draw only the changed fill pixels onto visibleStrokeCanvas
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = CANVAS_WIDTH;
+            tempCanvas.height = CANVAS_HEIGHT;
+            const tempCtx = tempCanvas.getContext('2d')!;
+            tempCtx.putImageData(deltaData, 0, 0);
+            visibleStrokeCtx.drawImage(tempCanvas, 0, 0);
+          }
         }
       } else {
         // Draw stroke to both stroke canvases
@@ -168,13 +301,69 @@ export function useWhiteboardCanvas(
       }
     }
 
+    // Draw deferred images on top (only in "images on top" mode)
+    for (const op of deferredImages) {
+      if (
+        op.imageId &&
+        op.x1 !== undefined &&
+        op.y1 !== undefined &&
+        op.x2 !== undefined &&
+        op.y2 !== undefined &&
+        getCachedImage
+      ) {
+        const bitmap = getCachedImage(op.imageId);
+        if (bitmap) {
+          visibleStrokeCtx.drawImage(
+            bitmap,
+            op.x1,
+            op.y1,
+            op.x2 - op.x1,
+            op.y2 - op.y1,
+          );
+        } else {
+          visibleStrokeCtx.save();
+          visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.15)';
+          visibleStrokeCtx.fillRect(op.x1, op.y1, op.x2 - op.x1, op.y2 - op.y1);
+          visibleStrokeCtx.strokeStyle = 'rgba(128, 128, 128, 0.4)';
+          visibleStrokeCtx.lineWidth = 2;
+          visibleStrokeCtx.strokeRect(
+            op.x1,
+            op.y1,
+            op.x2 - op.x1,
+            op.y2 - op.y1,
+          );
+          visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.6)';
+          visibleStrokeCtx.font = '14px sans-serif';
+          visibleStrokeCtx.textAlign = 'center';
+          visibleStrokeCtx.textBaseline = 'middle';
+          visibleStrokeCtx.fillText(
+            'Loading…',
+            (op.x1 + op.x2) / 2,
+            (op.y1 + op.y2) / 2,
+          );
+          visibleStrokeCtx.restore();
+        }
+      }
+    }
+
+    // Match outside-world background to the fill layer's corner color so a
+    // background flood fill appears continuous across the visible viewport.
+    const cornerPixel = fillCtx.getImageData(0, 0, 1, 1).data;
+    outsideWorldFillColorRef.current = `rgba(${cornerPixel[0]}, ${cornerPixel[1]}, ${cornerPixel[2]}, ${cornerPixel[3] / 255})`;
+
     // Composite to world canvas (transparent background)
     worldCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // Order: fillCanvas (bottom) -> visibleStrokeCanvas (top)
     worldCtx.drawImage(fillCanvas, 0, 0);
     worldCtx.drawImage(visibleStrokeCanvas, 0, 0);
-  }, [opsArray, initOffscreenCanvases, getBackgroundColor]);
+  }, [
+    opsArray,
+    initOffscreenCanvases,
+    getBackgroundColor,
+    getCachedImage,
+    imagesOnTop,
+  ]);
 
   // Renders the viewport efficiently using physical pixels to prevent seams
   const renderViewport = useCallback(() => {
@@ -197,24 +386,36 @@ export function useWhiteboardCanvas(
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
 
-    // Clear canvas (background already in worldCanvas)
-    ctx.clearRect(0, 0, physWidth, physHeight);
+    // Fill background for areas outside the world canvas
+    ctx.fillStyle = outsideWorldFillColorRef.current;
+    ctx.fillRect(0, 0, physWidth, physHeight);
 
-    // Source coordinates in world space
-    const srcX = Math.floor(Math.max(0, transformRef.current.x));
-    const srcY = Math.floor(Math.max(0, transformRef.current.y));
+    // Source coordinates in world space (keep fractional values so committed
+    // content and live previews use the same transform and do not "snap" on release)
+    const transform = transformRef.current;
+    const srcX = Math.max(0, transform.x);
+    const srcY = Math.max(0, transform.y);
 
     // Calculate how much of the world we're viewing
     const cssWidth = physWidth / dpr;
     const cssHeight = physHeight / dpr;
-    const viewWorldW = cssWidth / transformRef.current.scale;
-    const viewWorldH = cssHeight / transformRef.current.scale;
+    const viewWorldW = cssWidth / transform.scale;
+    const viewWorldH = cssHeight / transform.scale;
 
     // Clamp source dimensions to world canvas bounds
     const srcW = Math.min(viewWorldW, CANVAS_WIDTH - srcX);
     const srcH = Math.min(viewWorldH, CANVAS_HEIGHT - srcY);
 
-    // Draw world canvas on top
+    // Compute destination rectangle in physical pixels so the world-to-screen
+    // mapping matches the transform used by overlays and live previews.
+    // When the source is clamped (e.g. zoomed out past the world edge), the
+    // destination is proportionally smaller instead of stretching to fill.
+    const dstX = (srcX - transform.x) * transform.scale * dpr;
+    const dstY = (srcY - transform.y) * transform.scale * dpr;
+    const dstW = srcW * transform.scale * dpr;
+    const dstH = srcH * transform.scale * dpr;
+
+    // Draw world canvas
     if (srcW > 0 && srcH > 0) {
       ctx.drawImage(
         worldCanvas,
@@ -222,10 +423,10 @@ export function useWhiteboardCanvas(
         srcY,
         srcW,
         srcH,
-        0,
-        0,
-        physWidth,
-        physHeight,
+        dstX,
+        dstY,
+        dstW,
+        dstH,
       );
     }
 
@@ -273,6 +474,8 @@ export function useWhiteboardCanvas(
 
       ctx.restore();
     }
+
+    overlayRendererRef.current?.(ctx, transformRef.current, dpr);
   }, [getContext, getBackgroundColor, transformRef, currentOpRef, canvasRef]);
 
   // Schedule viewport render
@@ -285,6 +488,30 @@ export function useWhiteboardCanvas(
       rafIdRef.current = null;
     });
   }, [renderViewport]);
+
+  const rebuildAndRender = useCallback(() => {
+    rebuildWorldCanvas();
+    scheduleViewportRender();
+  }, [rebuildWorldCanvas, scheduleViewportRender]);
+
+  const setOverlayRenderer = useCallback<
+    WhiteboardCanvasState['setOverlayRenderer']
+  >((renderer) => {
+    overlayRendererRef.current = renderer;
+  }, []);
+
+  const setSuppressedImageOpId = useCallback<
+    WhiteboardCanvasState['setSuppressedImageOpId']
+  >(
+    (opId) => {
+      if (suppressedImageOpIdRef.current === opId) {
+        return;
+      }
+      suppressedImageOpIdRef.current = opId;
+      rebuildAndRender();
+    },
+    [rebuildAndRender],
+  );
 
   // Rebuild world canvas when data or theme changes
   useEffect(() => {
@@ -347,5 +574,8 @@ export function useWhiteboardCanvas(
   return {
     getBackgroundColor,
     scheduleViewportRender,
+    rebuildAndRender,
+    setOverlayRenderer,
+    setSuppressedImageOpId,
   };
 }
