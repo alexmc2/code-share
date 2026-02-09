@@ -50,6 +50,8 @@ export interface UndoEntry {
   previousOp?: DrawOp;
   imageData?: Uint8Array; // Stored for redo of image placement
   index?: number; // Optional original index for restoration (e.g., delete undo)
+  // For grouped transforms (e.g., drawing + associated fills moved together)
+  groupedOps?: { op: DrawOp; previousOp: DrawOp; index: number }[];
 }
 
 export const COLOURS = [

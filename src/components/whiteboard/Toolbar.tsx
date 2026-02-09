@@ -184,7 +184,7 @@ export function Toolbar({
     <div className="flex items-center gap-3 px-4 py-2 bg-panel border-b border-border flex-wrap">
       {/* Tools */}
       <div className={toolbarSectionClass}>
-        <ToolbarTooltip label="Select (V) - move/resize images" align="start">
+        <ToolbarTooltip label="Select (V) - move/resize objects" align="start">
           <button
             className={toolButtonClass(tool === 'select')}
             onClick={() => setTool('select')}

@@ -171,6 +171,24 @@ export function useDrawing(
       currentOpRef.current.points.push({ ...currentOpRef.current.points[0] });
     }
 
+    // Normalize circles: store x2 = x1 + radius, y2 = y1 + radius so that
+    // rx = |x2-x1| and ry = |y2-y1| are equal (a perfect circle).  Non-uniform
+    // scaling can later make them differ to produce an ellipse.
+    if (
+      currentOpRef.current.type === 'circle' &&
+      currentOpRef.current.x1 !== undefined &&
+      currentOpRef.current.y1 !== undefined &&
+      currentOpRef.current.x2 !== undefined &&
+      currentOpRef.current.y2 !== undefined
+    ) {
+      const r = Math.hypot(
+        currentOpRef.current.x2 - currentOpRef.current.x1,
+        currentOpRef.current.y2 - currentOpRef.current.y1,
+      );
+      currentOpRef.current.x2 = currentOpRef.current.x1 + r;
+      currentOpRef.current.y2 = currentOpRef.current.y1 + r;
+    }
+
     // Always push to opsArray (eraseStroke always has points)
     opsArray.push([currentOpRef.current]);
     undoStackRef.current.push({ action: 'add', op: currentOpRef.current });

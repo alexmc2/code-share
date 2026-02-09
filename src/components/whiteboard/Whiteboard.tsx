@@ -233,7 +233,7 @@ export function Whiteboard() {
     scheduleViewportRender,
     rebuildAndRender,
     setOverlayRenderer,
-    setSuppressedImageOpId,
+    setSuppressedOpIds,
   } = canvas;
 
   // Connect image hook rebuild callback to canvas
@@ -271,14 +271,14 @@ export function Whiteboard() {
     currentOp,
   );
 
-  // Image select (move/resize)
+  // Object select (move & resize images and other drawing ops)
   const imageSelect = useImageSelect(
     opsArray,
     images.imageMap,
     transformRef,
     canvasRef,
     scheduleViewportRender,
-    setSuppressedImageOpId,
+    setSuppressedOpIds,
     undoStackRef,
     redoStackRef,
     setCanUndo,
@@ -290,8 +290,8 @@ export function Whiteboard() {
     handleSelectMove,
     handleSelectEnd,
     getSelectedOpId,
-    deleteSelectedImage,
-    deselect: deselectSelectedImage,
+    deleteSelected,
+    deselect: deselectSelected,
     drawOverlay,
     getHoverCursor,
   } = imageSelect;
@@ -311,9 +311,9 @@ export function Whiteboard() {
   // Deselect when switching away from select tool
   useEffect(() => {
     if (tool !== 'select') {
-      deselectSelectedImage();
+      deselectSelected();
     }
-  }, [tool, deselectSelectedImage]);
+  }, [tool, deselectSelected]);
 
   useEffect(() => {
     const handleDelete = (e: KeyboardEvent) => {
@@ -324,14 +324,14 @@ export function Whiteboard() {
       if (!getSelectedOpId()) return;
 
       e.preventDefault();
-      deleteSelectedImage();
+      deleteSelected();
       selectCursorRef.current = 'default';
       setSelectCursor('default');
     };
 
     document.addEventListener('keydown', handleDelete);
     return () => document.removeEventListener('keydown', handleDelete);
-  }, [getSelectedOpId, deleteSelectedImage]);
+  }, [getSelectedOpId, deleteSelected]);
 
   // Tool shortcuts: V=select, B=pen, E=eraser, G=fill, S=cycle shape tools
   useEffect(() => {
