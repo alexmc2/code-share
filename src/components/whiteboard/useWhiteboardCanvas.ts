@@ -3,6 +3,7 @@ import type { DrawOp } from './types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './types';
 import {
   drawStrokeOp,
+  drawTextOp,
   drawEraseStrokePath,
   drawEraseStrokeOnFill,
 } from './drawing';
@@ -293,6 +294,8 @@ export function useWhiteboardCanvas(
             visibleStrokeCtx.drawImage(tempCanvas, 0, 0);
           }
         }
+      } else if (op.type === 'text') {
+        drawTextOp(visibleStrokeCtx, op);
       } else {
         // Draw stroke to both stroke canvases
         drawStrokeOp(boundaryStrokeCtx, op);

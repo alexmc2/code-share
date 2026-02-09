@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react';
 import type { DrawOp, Point, ResizeHandle, UndoEntry } from './types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './types';
-import { drawStrokeOp } from './drawing';
+import { drawStrokeOp, drawTextOp } from './drawing';
 import type * as Y from 'yjs';
 
 const HANDLE_RADIUS = 10;
@@ -9,7 +9,14 @@ const MIN_IMAGE_SIZE = 30;
 const MIN_DRAWING_SIZE = 10;
 
 /** Op types that can be selected and moved. */
-const SELECTABLE_TYPES = new Set(['path', 'line', 'rect', 'circle', 'image']);
+const SELECTABLE_TYPES = new Set([
+  'path',
+  'line',
+  'rect',
+  'circle',
+  'image',
+  'text',
+]);
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -31,7 +38,12 @@ function pointToSegmentDistSq(p: Point, a: Point, b: Point): number {
 function getOpBounds(
   op: DrawOp,
 ): { x1: number; y1: number; x2: number; y2: number } | null {
-  if (op.type === 'image' || op.type === 'rect' || op.type === 'line') {
+  if (
+    op.type === 'image' ||
+    op.type === 'rect' ||
+    op.type === 'line' ||
+    op.type === 'text'
+  ) {
     if (
       op.x1 === undefined ||
       op.y1 === undefined ||
@@ -124,7 +136,7 @@ function hitTestDrawingOp(
       ) <= thresholdSq
     );
   }
-  if (op.type === 'rect') {
+  if (op.type === 'rect' || op.type === 'text') {
     if (
       op.x1 === undefined ||
       op.y1 === undefined ||
@@ -543,7 +555,7 @@ export function useImageSelect(
             // Without this, removing the boundary stroke from the render while
             // the fill op is still active causes flood fill to cover the canvas.
             const bounds = getOpBounds(selectedOp);
-            let resizeGroupedOps: { op: DrawOp; index: number }[] = [];
+            const resizeGroupedOps: { op: DrawOp; index: number }[] = [];
             if (selectedOp.type !== 'image' && bounds) {
               const allOps = opsArray.toArray();
               for (let i = 0; i < allOps.length; i++) {
@@ -594,7 +606,7 @@ export function useImageSelect(
         };
 
         // Find associated fill ops for drawing ops
-        let groupedOps: { op: DrawOp; index: number }[] = [];
+        const groupedOps: { op: DrawOp; index: number }[] = [];
         if (hitOp.type !== 'image' && bounds) {
           const ops = opsArray.toArray();
           for (let i = 0; i < ops.length; i++) {
@@ -1044,6 +1056,9 @@ export function useImageSelect(
               preview.y2 - preview.y1,
             );
           }
+        } else if (preview.type === 'text') {
+          // Text op preview
+          drawTextOp(ctx, preview);
         } else if (
           SELECTABLE_TYPES.has(preview.type) &&
           preview.type !== 'image'
@@ -1176,7 +1191,7 @@ export function useImageSelect(
       if (hitOp) return 'move';
       return 'default';
     },
-    [opsArray, hitTestAny, getHandleAtScreenPos],
+    [hitTestAny, getHandleAtScreenPos],
   );
 
   return {

@@ -12,10 +12,12 @@ import {
 } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import {
+  Bold,
   Circle,
   Eraser,
   ImagePlus,
   Info,
+  Italic,
   Layers,
   Layers2,
   MousePointer2,
@@ -25,10 +27,17 @@ import {
   Slash,
   Square,
   Trash2,
+  Type,
   Undo2,
 } from 'lucide-react';
 import type { Tool } from './types';
-import { COLOURS, SIZES, ERASER_SIZES } from './types';
+import {
+  COLOURS,
+  SIZES,
+  ERASER_SIZES,
+  TEXT_SIZES,
+  FONT_FAMILIES,
+} from './types';
 
 interface ToolbarProps {
   tool: Tool;
@@ -39,15 +48,22 @@ interface ToolbarProps {
   canRedo: boolean;
   isMobile: boolean;
   imagesOnTop: boolean;
+  textBold: boolean;
+  textItalic: boolean;
+  fontFamily: string;
   setTool: (tool: Tool) => void;
   setColour: (colour: string) => void;
   setSize: (size: number) => void;
+  setTextBold: (bold: boolean) => void;
+  setTextItalic: (italic: boolean) => void;
+  setFontFamily: (family: string) => void;
   onZoomChange: (zoomPercent: number) => void;
   handleUndo: () => void;
   handleRedo: () => void;
   handleClear: () => void;
   onImageUpload?: (file: File) => void;
   onToggleImagesOnTop?: () => void;
+  preserveTextEditorFocus?: boolean;
 }
 
 const toolButtonClass = (isActive: boolean) =>
@@ -137,15 +153,22 @@ export function Toolbar({
   canRedo,
   isMobile,
   imagesOnTop,
+  textBold,
+  textItalic,
+  fontFamily,
   setTool,
   setColour,
   setSize,
+  setTextBold,
+  setTextItalic,
+  setFontFamily,
   onZoomChange,
   handleUndo,
   handleRedo,
   handleClear,
   onImageUpload,
   onToggleImagesOnTop,
+  preserveTextEditorFocus = false,
 }: ToolbarProps) {
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
   const [zoomInput, setZoomInput] = useState(`${zoomPercent}`);
@@ -178,6 +201,19 @@ export function Toolbar({
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const handleTextEditorSafeMouseDownCapture = (
+    e: React.MouseEvent<HTMLElement>,
+  ) => {
+    if (!preserveTextEditorFocus) return;
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('select,option,input,textarea')) return;
+    // Keep textarea focus while clicking style controls so selection/caret
+    // remains visually stable (no temporary blur background state).
+    e.preventDefault();
   };
 
   return (
@@ -245,6 +281,15 @@ export function Toolbar({
             aria-label="Fill tool"
           >
             <PaintBucket className="h-4 w-4" />
+          </button>
+        </ToolbarTooltip>
+        <ToolbarTooltip label="Text (T)">
+          <button
+            className={toolButtonClass(tool === 'text')}
+            onClick={() => setTool('text')}
+            aria-label="Text tool"
+          >
+            <Type className="h-4 w-4" />
           </button>
         </ToolbarTooltip>
       </div>
@@ -339,7 +384,11 @@ export function Toolbar({
 
       {/* Colours - hidden when select tool is active */}
       {tool !== 'select' && (
-        <div className={toolbarSectionClass}>
+        <div
+          className={toolbarSectionClass}
+          data-text-editor-focus-safe="true"
+          onMouseDownCapture={handleTextEditorSafeMouseDownCapture}
+        >
           {COLOURS.map((c) => (
             <button
               key={c}
@@ -360,8 +409,17 @@ export function Toolbar({
 
       {/* Sizes - hidden when select tool is active */}
       {tool !== 'select' && (
-        <div className={toolbarSectionClass}>
-          {(tool === 'eraser' ? ERASER_SIZES : SIZES).map((s) => (
+        <div
+          className={toolbarSectionClass}
+          data-text-editor-focus-safe="true"
+          onMouseDownCapture={handleTextEditorSafeMouseDownCapture}
+        >
+          {(tool === 'eraser'
+            ? ERASER_SIZES
+            : tool === 'text'
+              ? TEXT_SIZES
+              : SIZES
+          ).map((s) => (
             <button
               key={s.label}
               className={sizeButtonClass(size === s.value)}
@@ -370,6 +428,52 @@ export function Toolbar({
               {s.label}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Text formatting - bold/italic toggles + font family */}
+      {tool === 'text' && (
+        <div
+          className={toolbarSectionClass}
+          data-text-editor-focus-safe="true"
+          onMouseDownCapture={handleTextEditorSafeMouseDownCapture}
+        >
+          <ToolbarTooltip label="Bold">
+            <button
+              className={toolButtonClass(textBold)}
+              onClick={() => setTextBold(!textBold)}
+              aria-label="Toggle bold"
+            >
+              <Bold className="h-4 w-4" />
+            </button>
+          </ToolbarTooltip>
+          <ToolbarTooltip label="Italic">
+            <button
+              className={toolButtonClass(textItalic)}
+              onClick={() => setTextItalic(!textItalic)}
+              aria-label="Toggle italic"
+            >
+              <Italic className="h-4 w-4" />
+            </button>
+          </ToolbarTooltip>
+          <ToolbarTooltip label="Font family">
+            <select
+              value={fontFamily}
+              onChange={(e) => setFontFamily(e.target.value)}
+              className="h-8 rounded-lg px-2 text-xs font-semibold bg-panel border border-border text-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label="Font family"
+            >
+              {FONT_FAMILIES.map((f) => (
+                <option
+                  key={f.value}
+                  value={f.value}
+                  style={{ fontFamily: f.value }}
+                >
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </ToolbarTooltip>
         </div>
       )}
 

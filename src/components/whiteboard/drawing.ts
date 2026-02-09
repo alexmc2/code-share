@@ -117,3 +117,58 @@ export function drawEraseStrokeOnFill(
 
   ctx.restore();
 }
+
+/** Draw a text operation, scaling the text to fit within the bounding box. */
+export function drawTextOp(ctx: CanvasRenderingContext2D, op: DrawOp): void {
+  if (op.type !== 'text' || !op.text) return;
+  if (
+    op.x1 === undefined ||
+    op.y1 === undefined ||
+    op.x2 === undefined ||
+    op.y2 === undefined
+  )
+    return;
+
+  const fontSize = op.size || 24;
+  const boldStr = op.bold ? 'bold ' : '';
+  const italicStr = op.italic ? 'italic ' : '';
+  const family = op.fontFamily || 'sans-serif';
+  const font = `${italicStr}${boldStr}${fontSize}px ${family}`;
+
+  ctx.save();
+  ctx.font = font;
+  ctx.textBaseline = 'top';
+
+  const lines = op.text.split('\n');
+  const lineHeight = fontSize * 1.2;
+
+  // Compute natural dimensions at the original font size
+  let naturalWidth = 0;
+  for (const line of lines) {
+    const w = ctx.measureText(line).width;
+    if (w > naturalWidth) naturalWidth = w;
+  }
+  const naturalHeight = lineHeight * lines.length;
+
+  if (naturalWidth <= 0 || naturalHeight <= 0) {
+    ctx.restore();
+    return;
+  }
+
+  const boxWidth = Math.abs(op.x2 - op.x1);
+  const boxHeight = Math.abs(op.y2 - op.y1);
+  const scaleX = boxWidth / naturalWidth;
+  const scaleY = boxHeight / naturalHeight;
+
+  ctx.translate(Math.min(op.x1, op.x2), Math.min(op.y1, op.y2));
+  ctx.scale(scaleX, scaleY);
+  ctx.fillStyle = op.colour;
+  ctx.font = font;
+  ctx.textBaseline = 'top';
+
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], 0, i * lineHeight);
+  }
+
+  ctx.restore();
+}
