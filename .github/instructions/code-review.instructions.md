@@ -38,8 +38,8 @@ excludeAgent: 'coding-agent'
 - The select tool works on both images **and** drawing ops (path, line, rect, circle). Selectable types are defined in `SELECTABLE_TYPES` in `useImageSelect.ts`.
 - `useImageSelect` is the unified hook for selecting, moving, resizing, and deleting any selectable op — despite its legacy name it handles drawings too.
 - Moving an op removes it from its original position and pushes it to the **end** of `opsArray`, bringing it to the top of z-order within its layer. Verify this holds for both images and drawings.
-- Resize (drag handles) is available for all selectable ops (images and drawings). Corner handles scale both axes (uniform for drawings, aspect-ratio-locked for images unless Shift held). Side handles scale horizontally only; top/bottom handles scale vertically only.
-- `scaleOp()` creates a scaled copy of any op relative to an anchor point. For path ops it scales every point; for shapes it scales `x1/y1/x2/y2`. Verify edge cases: paths with a single point, zero-width/zero-height bounding boxes.
+- Resize (drag handles) is available for all selectable ops (images and drawings). Corner handles scale both axes (uniform for drawings, aspect-ratio-locked for images unless Shift held). Side handles scale horizontally only; top/bottom handles scale vertically only. Circles become ellipses after non-uniform scaling.
+- `scaleOp()` creates a scaled copy of any op relative to an anchor point. For path ops it scales every point; for rect/line it scales `x1/y1/x2/y2`; for circles it scales the bounding box and recomputes centre + rx/ry. Verify edge cases: paths with a single point, zero-width/zero-height bounding boxes.
 - Associated fill ops: when a drawing op is selected, fill ops whose start point `(x1, y1)` falls within the drawing's bounding box are treated as grouped. On move/delete they translate/remove together.
 - Grouped transforms use `UndoEntry.groupedOps[]` to record the fill ops that moved or were deleted alongside the primary op. Undo/redo must restore or re-apply all ops in the group atomically.
 - Canvas suppression during drag uses `setSuppressedOpIds(Set<string>)` which suppresses rendering of any op ID in the set (primary + grouped fills). Verify the set is cleared (`null`) on drag end and deselect.
@@ -57,8 +57,8 @@ excludeAgent: 'coding-agent'
 
 - `translateOp()` creates a coordinate-shifted copy of any op. For path ops it shifts every point; for shapes it shifts `x1/y1/x2/y2`. Verify edge cases: paths with a single point, circles at canvas edges.
 - `getOpBounds()` computes axis-aligned bounding boxes for all selectable types (including circle radius expansion). Used for selection overlay, hit-test grouping of fills, and canvas-boundary clamping during move.
-- `hitTestDrawingOp()` uses point-to-segment distance for paths/lines and bounding-box/radius checks for rects/circles. Hit padding scales inversely with zoom (`5 / transform.scale`).
-- Preview during drawing move: the drawing op is rendered via `drawStrokeOp()` in the overlay renderer. Fill ops are not previewed during drag (they reappear on release after world-canvas rebuild). This is expected behavior.
+- `hitTestDrawingOp()` uses point-to-segment distance for paths/lines and ellipse formula for circles. Hit padding scales inversely with zoom (`5 / transform.scale`).
+- Preview during drawing move/resize: the drawing op is rendered via `drawStrokeOp()` in the overlay renderer. For rect/circle ops, fills are also previewed. Grouped fill ops (those inside the drawing's bounds) are suppressed from the world canvas during drag and reappear on release after rebuild.
 
 ## Layer ordering (imagesOnTop toggle)
 
@@ -71,7 +71,7 @@ excludeAgent: 'coding-agent'
 
 - Verify pointer capture and drag lifecycle are correct for mouse, pen, and touch.
 - Verify selection overlay, handles, and bounding box stay aligned across zoom levels for both images and drawings.
-- Verify resize behavior is correct for corners vs edges, and any modifier overrides (for example `Shift`) behave as intended. For images, corners lock aspect ratio by default. For drawings, corners scale uniformly.
+- Verify resize behavior is correct for corners vs edges, and any modifier overrides (for example `Shift`) behave as intended. For images, corners lock aspect ratio by default. For drawings, corners scale uniformly (proportional resize); side handles stretch only the corresponding axis (horizontal-only or vertical-only), same as images. Circles use an ellipse representation (rx/ry) after non-uniform scaling.
 - Verify zoom/pan transforms are stable:
   - repeated zoom-in/out should not drift unexpectedly
   - clamping should not break drag/pan interactions
