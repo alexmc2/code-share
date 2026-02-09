@@ -271,7 +271,7 @@ export function Whiteboard() {
     currentOp,
   );
 
-  // Object select (move images & drawings, resize images)
+  // Object select (move & resize images and other drawing ops)
   const imageSelect = useImageSelect(
     opsArray,
     images.imageMap,

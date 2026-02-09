@@ -467,6 +467,24 @@ export function useWhiteboardCanvas(
           }
           ctx.stroke();
         }
+      } else if (
+        currentOpRef.current.type === 'circle' &&
+        currentOpRef.current.x1 !== undefined &&
+        currentOpRef.current.y1 !== undefined &&
+        currentOpRef.current.x2 !== undefined &&
+        currentOpRef.current.y2 !== undefined
+      ) {
+        // During live circle creation the edge-point is at an arbitrary angle.
+        // Normalize to rx=ry=radius so the preview stays circular.
+        const r = Math.hypot(
+          currentOpRef.current.x2 - currentOpRef.current.x1,
+          currentOpRef.current.y2 - currentOpRef.current.y1,
+        );
+        drawStrokeOp(ctx, {
+          ...currentOpRef.current,
+          x2: currentOpRef.current.x1 + r,
+          y2: currentOpRef.current.y1 + r,
+        });
       } else {
         drawStrokeOp(ctx, currentOpRef.current);
       }

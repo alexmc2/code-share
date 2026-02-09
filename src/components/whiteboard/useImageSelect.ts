@@ -54,12 +54,14 @@ function getOpBounds(
       op.y2 === undefined
     )
       return null;
-    const radius = Math.hypot(op.x2 - op.x1, op.y2 - op.y1);
+    // rx/ry encoding: centre (x1,y1), rx = |x2-x1|, ry = |y2-y1|
+    const rx = Math.abs(op.x2 - op.x1);
+    const ry = Math.abs(op.y2 - op.y1);
     return {
-      x1: op.x1 - radius,
-      y1: op.y1 - radius,
-      x2: op.x1 + radius,
-      y2: op.y1 + radius,
+      x1: op.x1 - rx,
+      y1: op.y1 - ry,
+      x2: op.x1 + rx,
+      y2: op.y1 + ry,
     };
   }
   if (op.type === 'path') {
@@ -149,10 +151,15 @@ function hitTestDrawingOp(
       op.y2 === undefined
     )
       return false;
-    const radius = Math.hypot(op.x2 - op.x1, op.y2 - op.y1);
-    const dist = Math.hypot(worldPos.x - op.x1, worldPos.y - op.y1);
+    // Ellipse hit-test: (dx/rx)^2 + (dy/ry)^2 <= 1 (with padding)
+    const rx = Math.abs(op.x2 - op.x1);
+    const ry = Math.abs(op.y2 - op.y1);
     const threshold = Math.max(op.size / 2, 3) + hitPadding;
-    return dist <= radius + threshold;
+    const dxE = worldPos.x - op.x1;
+    const dyE = worldPos.y - op.y1;
+    const rxP = rx + threshold;
+    const ryP = ry + threshold;
+    return (dxE * dxE) / (rxP * rxP) + (dyE * dyE) / (ryP * ryP) <= 1;
   }
   return false;
 }
@@ -172,6 +179,32 @@ function scaleOp(
   const newOp: DrawOp = { ...op, ts: Date.now() };
   const sx = (v: number) => anchorX + (v - anchorX) * scaleX;
   const sy = (v: number) => anchorY + (v - anchorY) * scaleY;
+
+  if (
+    op.type === 'circle' &&
+    op.x1 !== undefined &&
+    op.y1 !== undefined &&
+    op.x2 !== undefined &&
+    op.y2 !== undefined
+  ) {
+    // Circles are stored as centre (x1,y1) + radii encoded in (x2,y2).
+    // Scale via the bounding box so non-uniform scaling stretches correctly.
+    const rx = Math.abs(op.x2 - op.x1);
+    const ry = Math.abs(op.y2 - op.y1);
+    const bx1 = op.x1 - rx;
+    const by1 = op.y1 - ry;
+    const bx2 = op.x1 + rx;
+    const by2 = op.y1 + ry;
+    const sbx1 = anchorX + (bx1 - anchorX) * scaleX;
+    const sby1 = anchorY + (by1 - anchorY) * scaleY;
+    const sbx2 = anchorX + (bx2 - anchorX) * scaleX;
+    const sby2 = anchorY + (by2 - anchorY) * scaleY;
+    newOp.x1 = (sbx1 + sbx2) / 2; // new centre X
+    newOp.y1 = (sby1 + sby2) / 2; // new centre Y
+    newOp.x2 = newOp.x1 + Math.abs(sbx2 - sbx1) / 2; // new rx
+    newOp.y2 = newOp.y1 + Math.abs(sby2 - sby1) / 2; // new ry
+    return newOp;
+  }
 
   if (op.points) {
     newOp.points = op.points.map((p) => ({ x: sx(p.x), y: sy(p.y) }));
@@ -506,15 +539,46 @@ export function useImageSelect(
             transformRef.current,
           );
           if (handle) {
+            // Find associated fill ops so they are suppressed during resize.
+            // Without this, removing the boundary stroke from the render while
+            // the fill op is still active causes flood fill to cover the canvas.
+            const bounds = getOpBounds(selectedOp);
+            let resizeGroupedOps: { op: DrawOp; index: number }[] = [];
+            if (selectedOp.type !== 'image' && bounds) {
+              const allOps = opsArray.toArray();
+              for (let i = 0; i < allOps.length; i++) {
+                const fillOp = allOps[i];
+                if (
+                  fillOp.type === 'fill' &&
+                  fillOp.x1 !== undefined &&
+                  fillOp.y1 !== undefined &&
+                  fillOp.x1 >= bounds.x1 &&
+                  fillOp.x1 <= bounds.x2 &&
+                  fillOp.y1 >= bounds.y1 &&
+                  fillOp.y1 <= bounds.y2
+                ) {
+                  resizeGroupedOps.push({ op: { ...fillOp }, index: i });
+                }
+              }
+            }
+
             dragRef.current = {
               mode: 'resize',
               startWorld: worldPos,
               originalOp: { ...selectedOp },
               handle,
-              groupedOps: [],
+              groupedOps: resizeGroupedOps,
             };
             previewOpRef.current = { ...selectedOp };
-            setSuppressedOpIds(new Set([selectedOp.id]));
+
+            // Suppress the original op (and grouped fills for drawings) so
+            // the world canvas rebuilds without them. The overlay will render
+            // the scaled preview with fill + stroke in real time.
+            const suppressIds = new Set([
+              selectedOp.id,
+              ...resizeGroupedOps.map((g) => g.op.id),
+            ]);
+            setSuppressedOpIds(suppressIds);
             scheduleViewportRender();
             return;
           }
@@ -760,8 +824,9 @@ export function useImageSelect(
             anchorY = origBounds.y1;
           }
 
-          // For corners, scale both axes uniformly for drawings
-          if (isCorner && orig.type !== 'image') {
+          // For non-image drawing types, corners scale uniformly (proportional).
+          // Side handles stretch only one axis — same behaviour as images.
+          if (orig.type !== 'image' && isCorner) {
             const uniformScale = Math.max(scaleX, scaleY);
             scaleX = uniformScale;
             scaleY = uniformScale;
@@ -835,6 +900,37 @@ export function useImageSelect(
               newOps.push(translatedFill);
               undoGroupedOps.push({
                 op: translatedFill,
+                previousOp: fillOp,
+                index: fillIndex,
+              });
+            }
+          }
+        } else if (drag.mode === 'resize') {
+          // Scale grouped fill op origins by the same transform applied to the primary op.
+          // Compute scale factors from original bounds → preview bounds.
+          const oW = origBounds!.x2 - origBounds!.x1;
+          const oH = origBounds!.y2 - origBounds!.y1;
+          const pW = previewBounds!.x2 - previewBounds!.x1;
+          const pH = previewBounds!.y2 - previewBounds!.y1;
+          const sX = oW > 0 ? pW / oW : 1;
+          const sY = oH > 0 ? pH / oH : 1;
+          const anchorX = origBounds!.x1;
+          const anchorY = origBounds!.y1;
+          // Offset accounts for the anchor shifting between orig and preview
+          const offsetX = previewBounds!.x1 - anchorX * sX;
+          const offsetY = previewBounds!.y1 - anchorY * sY;
+
+          for (const { op: fillOp, index: fillIndex } of drag.groupedOps) {
+            if (fillIndex < ops.length && ops[fillIndex].id === fillOp.id) {
+              indicesToDelete.push(fillIndex);
+              const scaledFill: DrawOp = { ...fillOp, ts: Date.now() };
+              if (scaledFill.x1 !== undefined)
+                scaledFill.x1 = scaledFill.x1 * sX + offsetX;
+              if (scaledFill.y1 !== undefined)
+                scaledFill.y1 = scaledFill.y1 * sY + offsetY;
+              newOps.push(scaledFill);
+              undoGroupedOps.push({
+                op: scaledFill,
                 previousOp: fillOp,
                 index: fillIndex,
               });
@@ -914,6 +1010,7 @@ export function useImageSelect(
       }
 
       const preview = previewOpRef.current;
+
       if (preview) {
         ctx.save();
         const worldToPhys = dpr * transform.scale;
@@ -951,7 +1048,40 @@ export function useImageSelect(
           SELECTABLE_TYPES.has(preview.type) &&
           preview.type !== 'image'
         ) {
-          // Drawing op preview (path, line, rect, circle)
+          // Drawing op preview: render fill (if any) then stroke
+          const drag = dragRef.current;
+          if (drag && drag.groupedOps.length > 0) {
+            // Use the colour from the first grouped fill op
+            const fillColor = drag.groupedOps[0].op.colour;
+            ctx.fillStyle = fillColor;
+            if (
+              preview.type === 'rect' &&
+              preview.x1 !== undefined &&
+              preview.y1 !== undefined &&
+              preview.x2 !== undefined &&
+              preview.y2 !== undefined
+            ) {
+              ctx.fillRect(
+                Math.min(preview.x1, preview.x2),
+                Math.min(preview.y1, preview.y2),
+                Math.abs(preview.x2 - preview.x1),
+                Math.abs(preview.y2 - preview.y1),
+              );
+            } else if (
+              preview.type === 'circle' &&
+              preview.x1 !== undefined &&
+              preview.y1 !== undefined &&
+              preview.x2 !== undefined &&
+              preview.y2 !== undefined
+            ) {
+              const rx = Math.abs(preview.x2 - preview.x1);
+              const ry = Math.abs(preview.y2 - preview.y1);
+              ctx.beginPath();
+              ctx.ellipse(preview.x1, preview.y1, rx, ry, 0, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            // paths/lines: complex fill regions — stroke-only is fine
+          }
           drawStrokeOp(ctx, preview);
         }
 

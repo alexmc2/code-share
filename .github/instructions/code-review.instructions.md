@@ -48,7 +48,7 @@ excludeAgent: 'coding-agent'
 
 - Verify deletion of images is individually undoable/redoable:
   - Delete key removes only the selected image op.
-  - Undo restores both the image op and image bytes.
+  - Undo restores both the image op and image bytes.ug
   - Redo removes both again.
 - Verify deletion of drawing ops also deletes grouped fill ops and records them in `UndoEntry.groupedOps` for undo/redo.
 - Verify move/resize remains undoable/redoable independently from add/delete actions.

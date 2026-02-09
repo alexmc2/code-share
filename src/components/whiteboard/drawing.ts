@@ -57,9 +57,12 @@ export function drawStrokeOp(ctx: CanvasRenderingContext2D, op: DrawOp): void {
         op.y2 === undefined
       )
         break;
-      const radius = Math.hypot(op.x2 - op.x1, op.y2 - op.y1);
+      // Circles are stored as center (x1,y1) with rx=|x2-x1|, ry=|y2-y1|.
+      // After non-uniform scaling rx and ry may differ, producing an ellipse.
+      const rx = Math.abs(op.x2 - op.x1);
+      const ry = Math.abs(op.y2 - op.y1);
       ctx.beginPath();
-      ctx.arc(op.x1, op.y1, radius, 0, Math.PI * 2);
+      ctx.ellipse(op.x1, op.y1, rx, ry, 0, 0, Math.PI * 2);
       ctx.stroke();
       break;
     }

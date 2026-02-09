@@ -84,8 +84,9 @@ export function useUndoRedo(
         }
         deletions.sort((a, b) => b - a);
 
-        // Sort insertions ascending by original index
-        revertOps.sort((a, b) => a.prevIndex - b.prevIndex);
+        // Sort insertions descending by original index so each insert
+        // doesn't shift the positions needed by subsequent inserts.
+        revertOps.sort((a, b) => b.prevIndex - a.prevIndex);
 
         doc.transact(() => {
           for (const idx of deletions) {
@@ -100,11 +101,14 @@ export function useUndoRedo(
         redoStack.current.push(entry);
         setCanRedo(true);
       } else {
-        const index = ops.findIndex((op) => op.id === entry.op.id);
-        if (index !== -1 && previousOp) {
+        const currentIndex = ops.findIndex((op) => op.id === entry.op.id);
+        if (currentIndex !== -1 && previousOp) {
           doc.transact(() => {
-            opsArray.delete(index, 1);
-            opsArray.insert(index, [previousOp]);
+            opsArray.delete(currentIndex, 1);
+            // Restore at original index to preserve z-order (transforms push to end)
+            const targetIndex = entry.index ?? currentIndex;
+            const insertIndex = Math.min(targetIndex, opsArray.length);
+            opsArray.insert(insertIndex, [previousOp]);
           });
           redoStack.current.push(entry);
           setCanRedo(true);
@@ -139,10 +143,11 @@ export function useUndoRedo(
             imageMap.set(entry.op.imageId, entry.imageData);
           }
 
-          // Restore grouped ops first (ascending by original index)
+          // Restore grouped ops first (descending by original index so
+          // each insert doesn't shift positions needed by later inserts).
           if (entry.groupedOps) {
             const sorted = [...entry.groupedOps].sort(
-              (a, b) => a.index - b.index,
+              (a, b) => b.index - a.index,
             );
             for (const g of sorted) {
               const idx = Math.min(g.index, opsArray.length);
