@@ -371,10 +371,24 @@ export function Whiteboard() {
     commitText,
     closeTextInputEditor,
     applyFormattingToSelection,
-    toggleBoldOnSelection,
-    toggleItalicOnSelection,
+    getSelectionStyle,
     findTextOpAtWorldPoint,
   } = whiteboardText;
+
+  const syncTextToolbarFromSelection = useCallback(() => {
+    if (!textInputPos) return;
+
+    const style = getSelectionStyle();
+    if (!style) return;
+
+    setColour((prev) => (prev === style.colour ? prev : style.colour));
+    setSize((prev) => (prev === style.size ? prev : style.size));
+    setFontFamily((prev) =>
+      prev === style.fontFamily ? prev : style.fontFamily,
+    );
+    setTextBold((prev) => (prev === style.bold ? prev : style.bold));
+    setTextItalic((prev) => (prev === style.italic ? prev : style.italic));
+  }, [textInputPos, getSelectionStyle]);
 
   useEffect(() => {
     const handleDelete = (e: KeyboardEvent) => {
@@ -861,11 +875,11 @@ export function Whiteboard() {
         fontFamily={fontFamily}
         setTextBold={(bold) => {
           setTextBold(bold);
-          if (textInputPos) toggleBoldOnSelection();
+          if (textInputPos) applyFormattingToSelection({ bold });
         }}
         setTextItalic={(italic) => {
           setTextItalic(italic);
-          if (textInputPos) toggleItalicOnSelection();
+          if (textInputPos) applyFormattingToSelection({ italic });
         }}
         setFontFamily={(f) => {
           setFontFamily(f);
@@ -952,6 +966,7 @@ export function Whiteboard() {
             }}
             onEscape={closeTextInputEditor}
             onCommit={() => commitText()}
+            onSelectionChange={syncTextToolbarFromSelection}
           />
         )}
       </div>

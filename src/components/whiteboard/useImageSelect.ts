@@ -17,6 +17,11 @@ const SELECTABLE_TYPES = new Set([
   'image',
   'text',
 ]);
+const FILL_GROUPABLE_TYPES = new Set(['path', 'line', 'rect', 'circle']);
+
+function canGroupFills(op: DrawOp): boolean {
+  return FILL_GROUPABLE_TYPES.has(op.type);
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -470,7 +475,7 @@ export function useImageSelect(
     // Find associated fill ops for drawing ops
     const bounds = getOpBounds(op);
     const groupedFills: { op: DrawOp; index: number }[] = [];
-    if (op.type !== 'image' && bounds) {
+    if (canGroupFills(op) && bounds) {
       for (let i = 0; i < ops.length; i++) {
         if (i === index) continue;
         const fillOp = ops[i];
@@ -556,7 +561,7 @@ export function useImageSelect(
             // the fill op is still active causes flood fill to cover the canvas.
             const bounds = getOpBounds(selectedOp);
             const resizeGroupedOps: { op: DrawOp; index: number }[] = [];
-            if (selectedOp.type !== 'image' && bounds) {
+            if (canGroupFills(selectedOp) && bounds) {
               const allOps = opsArray.toArray();
               for (let i = 0; i < allOps.length; i++) {
                 const fillOp = allOps[i];
@@ -607,7 +612,7 @@ export function useImageSelect(
 
         // Find associated fill ops for drawing ops
         const groupedOps: { op: DrawOp; index: number }[] = [];
-        if (hitOp.type !== 'image' && bounds) {
+        if (canGroupFills(hitOp) && bounds) {
           const ops = opsArray.toArray();
           for (let i = 0; i < ops.length; i++) {
             const op = ops[i];

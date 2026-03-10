@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { nanoid } from 'nanoid';
-import type { DrawOp, TextRun } from './types';
+import type { DrawOp, TextRun, UndoEntry } from './types';
 import type { TextEditorHandle } from './WhiteboardTextEditor';
 import type { RunStyle } from './text-model';
 import {
@@ -10,9 +10,45 @@ import {
   applyStyleToRange,
   getStyleAtOffset,
   allInRangeHaveStyle,
+  splitRunsAt,
 } from './text-model';
 import { measureRichText } from './text-measure';
 import type * as Y from 'yjs';
+
+const CARET_STYLE_MARKER = '\u200B';
+
+function toStyledRun(text: string, style: Required<RunStyle>): TextRun {
+  return {
+    text,
+    colour: style.colour,
+    size: style.size,
+    fontFamily: style.fontFamily,
+    bold: style.bold || undefined,
+    italic: style.italic || undefined,
+  };
+}
+
+function insertCaretStyleMarker(
+  runs: TextRun[],
+  offset: number,
+  style: Required<RunStyle>,
+): TextRun[] {
+  const [before, after] = splitRunsAt(runs, offset);
+  return normaliseRuns([
+    ...before,
+    toStyledRun(CARET_STYLE_MARKER, style),
+    ...after,
+  ]);
+}
+
+function stripCaretStyleMarkers(runs: TextRun[]): TextRun[] {
+  return normaliseRuns(
+    runs.map((run) => ({
+      ...run,
+      text: run.text.replaceAll(CARET_STYLE_MARKER, ''),
+    })),
+  );
+}
 
 export interface TextInputState {
   worldX: number;
@@ -49,8 +85,8 @@ export function useWhiteboardText(
   defaultItalic: boolean,
   setSuppressedOpIds: (ids: Set<string> | null) => void,
   scheduleViewportRender: () => void,
-  undoStackRef: React.RefObject<{ action?: string; op: DrawOp; previousOp?: DrawOp; index?: number }[]>,
-  redoStackRef: React.RefObject<{ action?: string; op: DrawOp; previousOp?: DrawOp; index?: number }[]>,
+  undoStackRef: React.RefObject<UndoEntry[]>,
+  redoStackRef: React.RefObject<UndoEntry[]>,
   setCanUndo: (v: boolean) => void,
   setCanRedo: (v: boolean) => void,
 ): UseWhiteboardTextResult {
@@ -100,7 +136,8 @@ export function useWhiteboardText(
     if (!input) return;
 
     const editor = textEditorRef.current;
-    const runs = editor ? editor.getRuns() : input.initialRuns;
+    const rawRuns = editor ? editor.getRuns() : input.initialRuns;
+    const runs = stripCaretStyleMarkers(rawRuns);
     const plainText = runsToPlainText(runs);
     const hasMeaningfulContent = plainText.trim().length > 0;
 
@@ -327,14 +364,9 @@ export function useWhiteboardText(
 
       const { start, end } = sel;
       if (start === end) {
-        // No selection: apply style at caret for future typing
-        // Insert a zero-width space with the new style, then re-select it
-        // Actually, we modify the run at the caret position so new typing
-        // inherits the style. We'll insert a marker run.
-        // Simpler approach: just track "pending style" — but that needs more state.
-        // For now, apply to the run at the caret.
-        const updated = applyStyleToRange(runs, Math.max(0, start - 1), start, style);
-        editor.setRuns(updated, sel);
+        const caretStyle = { ...getStyleAtOffset(runs, start), ...style };
+        const updated = insertCaretStyleMarker(runs, start, caretStyle);
+        editor.setRuns(updated, { start, end: start + 1 });
         return;
       }
 

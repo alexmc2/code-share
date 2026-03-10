@@ -1,4 +1,11 @@
-import { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import {
+  useRef,
+  useEffect,
+  useCallback,
+  useImperativeHandle,
+  forwardRef,
+  useMemo,
+} from 'react';
 import type { TextRun } from './types';
 import { normaliseRuns, runsToPlainText } from './text-model';
 import { renderRunsToDOM, extractRunsFromDOM, type RunDefaults } from './text-dom';
@@ -36,6 +43,7 @@ interface WhiteboardTextEditorProps {
   onEscape: () => void;
   onCommit: (runs: TextRun[]) => void;
   onModelChange?: (runs: TextRun[]) => void;
+  onSelectionChange?: () => void;
 }
 
 export const WhiteboardTextEditor = forwardRef<
@@ -59,6 +67,7 @@ export const WhiteboardTextEditor = forwardRef<
     onEscape,
     onCommit,
     onModelChange,
+    onSelectionChange,
   },
   ref,
 ) {
@@ -83,25 +92,35 @@ export const WhiteboardTextEditor = forwardRef<
           start: plainText.length,
           end: plainText.length,
         });
+        onSelectionChange?.();
       });
     });
     // Only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const runDefaults: RunDefaults = {
-    size: defaultSize,
-    colour: defaultColour,
-    fontFamily: defaultFontFamily,
-    bold: defaultBold,
-    italic: defaultItalic,
-  };
+  const runDefaults: RunDefaults = useMemo(
+    () => ({
+      size: defaultSize,
+      colour: defaultColour,
+      fontFamily: defaultFontFamily,
+      bold: defaultBold,
+      italic: defaultItalic,
+    }),
+    [
+      defaultSize,
+      defaultColour,
+      defaultFontFamily,
+      defaultBold,
+      defaultItalic,
+    ],
+  );
 
   const getCurrentRuns = useCallback((): TextRun[] => {
     const el = editorRef.current;
     if (!el) return modelRef.current;
     return extractRunsFromDOM(el, runDefaults);
-  }, [defaultSize, defaultColour, defaultFontFamily, defaultBold, defaultItalic]);
+  }, [runDefaults]);
 
   const getSelection = useCallback((): FlatSelection | null => {
     const el = editorRef.current;
@@ -121,8 +140,10 @@ export const WhiteboardTextEditor = forwardRef<
       if (selection) {
         restoreFlatSelection(el, selection);
       }
+
+      onSelectionChange?.();
     },
-    [defaultSize],
+    [defaultSize, onSelectionChange],
   );
 
   useImperativeHandle(
@@ -140,7 +161,26 @@ export const WhiteboardTextEditor = forwardRef<
     const runs = getCurrentRuns();
     modelRef.current = runs;
     onModelChange?.(runs);
-  }, [getCurrentRuns, onModelChange]);
+    onSelectionChange?.();
+  }, [getCurrentRuns, onModelChange, onSelectionChange]);
+
+  useEffect(() => {
+    if (!onSelectionChange) return;
+
+    const handleSelectionChange = () => {
+      const el = editorRef.current;
+      const selection = window.getSelection();
+      if (!el || !selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (!el.contains(range.startContainer)) return;
+      onSelectionChange();
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+    };
+  }, [onSelectionChange]);
 
   const handleBlur = useCallback(
     (e: React.FocusEvent) => {
@@ -204,15 +244,37 @@ export const WhiteboardTextEditor = forwardRef<
     [getCurrentRuns, onEscape, onCommit],
   );
 
+  const insertPlainTextAtSelection = useCallback((text: string): boolean => {
+    const el = editorRef.current;
+    const selection = window.getSelection();
+    if (!el || !selection || selection.rangeCount === 0) return false;
+
+    const range = selection.getRangeAt(0);
+    if (!el.contains(range.startContainer)) return false;
+
+    range.deleteContents();
+    const textNode = document.createTextNode(text);
+    range.insertNode(textNode);
+    range.setStart(textNode, text.length);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }, []);
+
   // Prevent default paste to handle it ourselves (strip formatting from pasted content)
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
       e.preventDefault();
       const text = e.clipboardData.getData('text/plain');
       if (!text) return;
-      document.execCommand('insertText', false, text);
+      if (!insertPlainTextAtSelection(text)) return;
+      const runs = getCurrentRuns();
+      modelRef.current = runs;
+      onModelChange?.(runs);
+      onSelectionChange?.();
     },
-    [],
+    [getCurrentRuns, insertPlainTextAtSelection, onModelChange, onSelectionChange],
   );
 
   // The editor is scaled from world coords to screen coords via CSS transform.
