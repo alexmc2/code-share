@@ -45,6 +45,8 @@ export function useWhiteboardText(
   defaultSize: number,
   defaultColour: string,
   defaultFontFamily: string,
+  defaultBold: boolean,
+  defaultItalic: boolean,
   setSuppressedOpIds: (ids: Set<string> | null) => void,
   scheduleViewportRender: () => void,
   undoStackRef: React.RefObject<{ action?: string; op: DrawOp; previousOp?: DrawOp; index?: number }[]>,
@@ -240,6 +242,10 @@ export function useWhiteboardText(
       const transform = transformRef.current;
       const worldX = (clientX - rect.left) / transform.scale + transform.x;
       const worldY = (clientY - rect.top) / transform.scale + transform.y;
+      // Editor has border (2px) + padding (4px left, 2px top) in local/world coords.
+      // Offset screenX/Y so the text content aligns with the world coordinate.
+      const editorOffsetX = (2 + 4) * transform.scale; // border + padding-left
+      const editorOffsetY = (2 + 2) * transform.scale; // border + padding-top
       const hitTextOp = findTextOpAtWorldPoint(worldX, worldY);
 
       if (
@@ -268,8 +274,8 @@ export function useWhiteboardText(
         setTextInputPos({
           worldX: minX,
           worldY: minY,
-          screenX: (minX - transform.x) * transform.scale,
-          screenY: (minY - transform.y) * transform.scale,
+          screenX: (minX - transform.x) * transform.scale - editorOffsetX,
+          screenY: (minY - transform.y) * transform.scale - editorOffsetY,
           minWidthPx: widthPx,
           minHeightPx: heightPx,
           editingOpId: hitTextOp.id,
@@ -284,12 +290,12 @@ export function useWhiteboardText(
       setTextInputPos({
         worldX,
         worldY,
-        screenX: clientX - rect.left,
-        screenY: clientY - rect.top,
+        screenX: clientX - rect.left - editorOffsetX,
+        screenY: clientY - rect.top - editorOffsetY,
         minWidthPx: 60,
         minHeightPx: defaultMinHeight,
         editingOpId: null,
-        initialRuns: [{ text: '', colour: defaultColour, size: defaultSize, fontFamily: defaultFontFamily }],
+        initialRuns: [{ text: '', colour: defaultColour, size: defaultSize, fontFamily: defaultFontFamily, bold: defaultBold || undefined, italic: defaultItalic || undefined }],
       });
     },
     [
@@ -299,6 +305,8 @@ export function useWhiteboardText(
       defaultSize,
       defaultColour,
       defaultFontFamily,
+      defaultBold,
+      defaultItalic,
       scheduleViewportRender,
       setSuppressedOpIds,
     ],

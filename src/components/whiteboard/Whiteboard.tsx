@@ -355,6 +355,8 @@ export function Whiteboard() {
     size,
     colour,
     fontFamily,
+    textBold,
+    textItalic,
     setSuppressedOpIds,
     scheduleViewportRender,
     undoStackRef,
@@ -937,6 +939,8 @@ export function Whiteboard() {
             defaultSize={size}
             defaultColour={colour}
             defaultFontFamily={fontFamily}
+            defaultBold={textBold}
+            defaultItalic={textItalic}
             screenX={textInputPos.screenX}
             screenY={textInputPos.screenY}
             minWidthPx={textInputPos.minWidthPx}

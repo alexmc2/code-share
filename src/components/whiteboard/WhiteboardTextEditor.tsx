@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import type { TextRun } from './types';
 import { normaliseRuns, runsToPlainText } from './text-model';
-import { renderRunsToDOM, extractRunsFromDOM } from './text-dom';
+import { renderRunsToDOM, extractRunsFromDOM, type RunDefaults } from './text-dom';
 import {
   saveFlatSelection,
   restoreFlatSelection,
@@ -24,6 +24,8 @@ interface WhiteboardTextEditorProps {
   defaultSize: number;
   defaultColour: string;
   defaultFontFamily: string;
+  defaultBold: boolean;
+  defaultItalic: boolean;
   screenX: number;
   screenY: number;
   minWidthPx: number;
@@ -45,6 +47,8 @@ export const WhiteboardTextEditor = forwardRef<
     defaultSize,
     defaultColour,
     defaultFontFamily,
+    defaultBold,
+    defaultItalic,
     screenX,
     screenY,
     minWidthPx,
@@ -85,11 +89,19 @@ export const WhiteboardTextEditor = forwardRef<
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const runDefaults: RunDefaults = {
+    size: defaultSize,
+    colour: defaultColour,
+    fontFamily: defaultFontFamily,
+    bold: defaultBold,
+    italic: defaultItalic,
+  };
+
   const getCurrentRuns = useCallback((): TextRun[] => {
     const el = editorRef.current;
     if (!el) return modelRef.current;
-    return extractRunsFromDOM(el, defaultSize, defaultColour, defaultFontFamily);
-  }, [defaultSize, defaultColour, defaultFontFamily]);
+    return extractRunsFromDOM(el, runDefaults);
+  }, [defaultSize, defaultColour, defaultFontFamily, defaultBold, defaultItalic]);
 
   const getSelection = useCallback((): FlatSelection | null => {
     const el = editorRef.current;
@@ -224,6 +236,8 @@ export const WhiteboardTextEditor = forwardRef<
         lineHeight: '1.2',
         color: defaultColour,
         fontFamily: defaultFontFamily,
+        fontWeight: defaultBold ? 'bold' : 'normal',
+        fontStyle: defaultItalic ? 'italic' : 'normal',
         background: 'transparent',
         border: lightTextColour
           ? '2px solid rgba(255, 255, 255, 0.85)'

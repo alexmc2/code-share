@@ -73,13 +73,30 @@ function applyRunStyleToElement(
  * Walks child nodes, treating <br> as '\n' and <span> as styled runs.
  * Text nodes outside spans inherit defaults.
  */
+export interface RunDefaults {
+  size: number;
+  colour: string;
+  fontFamily?: string;
+  bold?: boolean;
+  italic?: boolean;
+}
+
 export function extractRunsFromDOM(
   container: HTMLElement,
-  defaultSize: number,
-  defaultColour: string,
-  defaultFontFamily: string = 'sans-serif',
+  defaults: RunDefaults,
 ): TextRun[] {
   const runs: TextRun[] = [];
+
+  function makeDefaultRun(text: string): TextRun {
+    return {
+      text,
+      colour: defaults.colour,
+      size: defaults.size,
+      fontFamily: defaults.fontFamily || 'sans-serif',
+      bold: defaults.bold || undefined,
+      italic: defaults.italic || undefined,
+    };
+  }
 
   function processNode(node: Node): void {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -88,14 +105,9 @@ export function extractRunsFromDOM(
         // Inherit style from parent span if available
         const parent = node.parentElement;
         if (parent && parent !== container && parent.tagName === 'SPAN') {
-          runs.push(extractRunFromSpan(parent, text, defaultSize, defaultColour));
+          runs.push(extractRunFromSpan(parent, text, defaults.size, defaults.colour));
         } else {
-          runs.push({
-            text,
-            colour: defaultColour,
-            size: defaultSize,
-            fontFamily: defaultFontFamily,
-          });
+          runs.push(makeDefaultRun(text));
         }
       }
       return;
@@ -105,7 +117,7 @@ export function extractRunsFromDOM(
     const el = node as HTMLElement;
 
     if (el.tagName === 'BR') {
-      runs.push({ text: '\n', colour: defaultColour, size: defaultSize, fontFamily: defaultFontFamily });
+      runs.push(makeDefaultRun('\n'));
       return;
     }
 
@@ -118,7 +130,7 @@ export function extractRunsFromDOM(
         // Only add newline if the previous run doesn't already end with one
         const lastRun = runs[runs.length - 1];
         if (!lastRun || !lastRun.text.endsWith('\n')) {
-          runs.push({ text: '\n', colour: defaultColour, size: defaultSize, fontFamily: defaultFontFamily });
+          runs.push(makeDefaultRun('\n'));
         }
       }
       // Process children of the block
@@ -134,7 +146,7 @@ export function extractRunsFromDOM(
         if (child.nodeType === Node.TEXT_NODE) {
           const text = child.textContent ?? '';
           if (text.length > 0) {
-            runs.push(extractRunFromSpan(el, text, defaultSize, defaultColour));
+            runs.push(extractRunFromSpan(el, text, defaults.size, defaults.colour));
           }
         } else {
           processNode(child);
