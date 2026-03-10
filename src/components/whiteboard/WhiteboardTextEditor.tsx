@@ -162,9 +162,11 @@ export const WhiteboardTextEditor = forwardRef<
   );
 
   const handleInput = useCallback(() => {
-    const runs = getCurrentRuns();
-    modelRef.current = runs;
-    onModelChange?.(runs);
+    if (onModelChange) {
+      const runs = getCurrentRuns();
+      modelRef.current = runs;
+      onModelChange(runs);
+    }
     onSelectionChange?.();
   }, [getCurrentRuns, onModelChange, onSelectionChange]);
 
@@ -290,12 +292,16 @@ export const WhiteboardTextEditor = forwardRef<
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
       e.preventDefault();
-      const text = e.clipboardData.getData('text/plain');
+      const text = e.clipboardData
+        .getData('text/plain')
+        .replace(/\r\n?/g, '\n');
       if (!text) return;
       if (!insertPlainTextAtSelection(text)) return;
-      const runs = getCurrentRuns();
-      modelRef.current = runs;
-      onModelChange?.(runs);
+      if (onModelChange) {
+        const runs = getCurrentRuns();
+        modelRef.current = runs;
+        onModelChange(runs);
+      }
       onSelectionChange?.();
     },
     [getCurrentRuns, insertPlainTextAtSelection, onModelChange, onSelectionChange],
