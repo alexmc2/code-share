@@ -443,6 +443,7 @@ export function Toolbar({
               className={toolButtonClass(textBold)}
               onClick={() => setTextBold(!textBold)}
               aria-label="Toggle bold"
+              aria-pressed={textBold}
             >
               <Bold className="h-4 w-4" />
             </button>
@@ -452,6 +453,7 @@ export function Toolbar({
               className={toolButtonClass(textItalic)}
               onClick={() => setTextItalic(!textItalic)}
               aria-label="Toggle italic"
+              aria-pressed={textItalic}
             >
               <Italic className="h-4 w-4" />
             </button>

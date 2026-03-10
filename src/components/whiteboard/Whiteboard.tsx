@@ -74,6 +74,7 @@ export function Whiteboard() {
   const [selectCursor, setSelectCursor] = useState('default');
   const selectCursorRef = useRef('default');
   const [zoomPercent, setZoomPercent] = useState(100);
+  const [editorScale, setEditorScale] = useState(1);
   const [showPasteTipToast, setShowPasteTipToast] = useState(() => {
     if (typeof window === 'undefined') return false;
     try {
@@ -188,6 +189,7 @@ export function Whiteboard() {
   const setZoomFromScale = useCallback((scale: number) => {
     const next = Math.round(scale * 100);
     setZoomPercent((prev) => (prev === next ? prev : next));
+    setEditorScale((prev) => (prev === scale ? prev : scale));
   }, []);
 
   const refreshZoomPercent = useCallback(() => {
@@ -358,7 +360,6 @@ export function Whiteboard() {
     textBold,
     textItalic,
     setSuppressedOpIds,
-    scheduleViewportRender,
     undoStackRef,
     redoStackRef,
     setCanUndo,
@@ -961,7 +962,7 @@ export function Whiteboard() {
             screenY={textInputPos.screenY}
             minWidthPx={textInputPos.minWidthPx}
             minHeightPx={textInputPos.minHeightPx}
-            scale={zoomPercent / 100}
+            scale={editorScale}
             lightTextColour={lightTextColour}
             onBlur={() => {
               commitText();

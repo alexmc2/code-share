@@ -84,7 +84,6 @@ export function useWhiteboardText(
   defaultBold: boolean,
   defaultItalic: boolean,
   setSuppressedOpIds: (ids: Set<string> | null) => void,
-  scheduleViewportRender: () => void,
   undoStackRef: React.RefObject<UndoEntry[]>,
   redoStackRef: React.RefObject<UndoEntry[]>,
   setCanUndo: (v: boolean) => void,
@@ -94,9 +93,8 @@ export function useWhiteboardText(
   const textEditorRef = useRef<TextEditorHandle | null>(null);
   const closeTextInputEditor = useCallback(() => {
     setSuppressedOpIds(null);
-    scheduleViewportRender();
     setTextInputPos(null);
-  }, [setSuppressedOpIds, scheduleViewportRender]);
+  }, [setSuppressedOpIds]);
 
   const findTextOpAtWorldPoint = useCallback(
     (worldX: number, worldY: number): DrawOp | null => {
@@ -305,7 +303,6 @@ export function useWhiteboardText(
 
         const initialRuns = getOpRuns(hitTextOp);
         setSuppressedOpIds(new Set([hitTextOp.id]));
-        scheduleViewportRender();
 
 
         setTextInputPos({
@@ -323,7 +320,6 @@ export function useWhiteboardText(
 
       const defaultMinHeight = Math.ceil(defaultSize * transform.scale * 1.2 + 8);
       setSuppressedOpIds(null);
-      scheduleViewportRender();
       setTextInputPos({
         worldX,
         worldY,
@@ -344,7 +340,6 @@ export function useWhiteboardText(
       defaultFontFamily,
       defaultBold,
       defaultItalic,
-      scheduleViewportRender,
       setSuppressedOpIds,
     ],
   );
