@@ -131,7 +131,10 @@ export function useWhiteboardText(
         }
 
         const normalised = normaliseRuns(runs);
-        const measured = measureRichText(normalised, defaultSize);
+        // Use the first run's size as the reference default — this MUST match
+        // what drawTextOp uses (op.size) so the bounding box scale is consistent.
+        const refSize = normalised[0]?.size || defaultSize;
+        const measured = measureRichText(normalised, refSize);
 
         // Preserve any scale factor from previous resize/transform
         let scaleX = 1;
@@ -143,7 +146,8 @@ export function useWhiteboardText(
           existingOp.y2 !== undefined
         ) {
           const prevRuns = getOpRuns(existingOp);
-          const prevMeasured = measureRichText(prevRuns, existingOp.size || defaultSize);
+          const prevRefSize = existingOp.size || defaultSize;
+          const prevMeasured = measureRichText(prevRuns, prevRefSize);
           scaleX = Math.abs(existingOp.x2 - existingOp.x1) / prevMeasured.width;
           scaleY = Math.abs(existingOp.y2 - existingOp.y1) / prevMeasured.height;
         }
@@ -155,7 +159,7 @@ export function useWhiteboardText(
           // Keep legacy fields for backward compat
           text: plainText,
           colour: normalised[0]?.colour || defaultColour,
-          size: normalised[0]?.size || defaultSize,
+          size: refSize,
           bold: normalised[0]?.bold || undefined,
           italic: normalised[0]?.italic || undefined,
           fontFamily: normalised[0]?.fontFamily || undefined,
@@ -189,7 +193,8 @@ export function useWhiteboardText(
     }
 
     const normalised = normaliseRuns(runs);
-    const measured = measureRichText(normalised, defaultSize);
+    const refSize = normalised[0]?.size || defaultSize;
+    const measured = measureRichText(normalised, refSize);
 
     const op: DrawOp = {
       id: nanoid(8),
@@ -198,7 +203,7 @@ export function useWhiteboardText(
       runs: normalised,
       text: plainText,
       colour: normalised[0]?.colour || defaultColour,
-      size: normalised[0]?.size || defaultSize,
+      size: refSize,
       bold: normalised[0]?.bold || undefined,
       italic: normalised[0]?.italic || undefined,
       fontFamily: normalised[0]?.fontFamily || undefined,

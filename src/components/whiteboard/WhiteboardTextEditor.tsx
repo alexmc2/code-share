@@ -173,6 +173,8 @@ export const WhiteboardTextEditor = forwardRef<
       e.stopPropagation();
 
       if (e.key === 'Escape') {
+        // Suppress the blur that will fire when the editor is removed from DOM
+        suppressBlurRef.current = true;
         onEscape();
         return;
       }
