@@ -29,9 +29,13 @@ export interface LineSegment {
   fontFamily?: string;
 }
 
+export interface MeasuredLineSegment extends LineSegment {
+  width: number;
+}
+
 /** A measured line: its segments plus computed metrics. */
 export interface MeasuredLine {
-  segments: LineSegment[];
+  segments: MeasuredLineSegment[];
   width: number;
   height: number; // lineHeight (max segment size * 1.2)
   baseFontSize: number; // max segment size in this line
@@ -101,10 +105,16 @@ export function measureRichText(
   for (const segments of lineSegments) {
     let lineWidth = 0;
     let maxSize = defaultSize;
+    const measuredSegments: MeasuredLineSegment[] = [];
 
     for (const seg of segments) {
       ctx.font = buildFontString(seg.size, seg.bold, seg.italic, seg.fontFamily);
-      lineWidth += ctx.measureText(seg.text).width;
+      const width = ctx.measureText(seg.text).width;
+      lineWidth += width;
+      measuredSegments.push({
+        ...seg,
+        width,
+      });
       if (seg.size > maxSize) maxSize = seg.size;
     }
 
@@ -115,7 +125,7 @@ export function measureRichText(
 
     const lineHeight = maxSize * 1.2;
     measuredLines.push({
-      segments,
+      segments: measuredSegments,
       width: lineWidth,
       height: lineHeight,
       baseFontSize: maxSize,

@@ -44,6 +44,8 @@ interface WhiteboardTextEditorProps {
   onCommit: (runs: TextRun[]) => void;
   onModelChange?: (runs: TextRun[]) => void;
   onSelectionChange?: () => void;
+  onToggleBoldShortcut?: () => void;
+  onToggleItalicShortcut?: () => void;
 }
 
 export const WhiteboardTextEditor = forwardRef<
@@ -68,6 +70,8 @@ export const WhiteboardTextEditor = forwardRef<
     onCommit,
     onModelChange,
     onSelectionChange,
+    onToggleBoldShortcut,
+    onToggleItalicShortcut,
   },
   ref,
 ) {
@@ -226,6 +230,20 @@ export const WhiteboardTextEditor = forwardRef<
     (e: React.KeyboardEvent) => {
       e.stopPropagation();
 
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'b') {
+          e.preventDefault();
+          onToggleBoldShortcut?.();
+          return;
+        }
+        if (key === 'i') {
+          e.preventDefault();
+          onToggleItalicShortcut?.();
+          return;
+        }
+      }
+
       if (e.key === 'Escape') {
         // Suppress the blur that will fire when the editor is removed from DOM
         suppressBlurRef.current = true;
@@ -241,7 +259,13 @@ export const WhiteboardTextEditor = forwardRef<
         return;
       }
     },
-    [getCurrentRuns, onEscape, onCommit],
+    [
+      getCurrentRuns,
+      onEscape,
+      onCommit,
+      onToggleBoldShortcut,
+      onToggleItalicShortcut,
+    ],
   );
 
   const insertPlainTextAtSelection = useCallback((text: string): boolean => {

@@ -2,6 +2,31 @@ import type { DrawOp } from './types';
 import { getOpRuns } from './text-model';
 import { measureRichText, buildFontString } from './text-measure';
 
+const MAX_TEXT_MEASUREMENT_CACHE_SIZE = 500;
+const textMeasurementCache = new Map<string, ReturnType<typeof measureRichText>>();
+
+function getCachedTextMeasurement(
+  op: DrawOp,
+  defaultSize: number,
+  measure: () => ReturnType<typeof measureRichText>,
+): ReturnType<typeof measureRichText> {
+  const cacheKey = `${op.id}:${op.ts}:${defaultSize}`;
+  const cached = textMeasurementCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const measured = measure();
+  textMeasurementCache.set(cacheKey, measured);
+  if (textMeasurementCache.size > MAX_TEXT_MEASUREMENT_CACHE_SIZE) {
+    const oldestKey = textMeasurementCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      textMeasurementCache.delete(oldestKey);
+    }
+  }
+  return measured;
+}
+
 /** Draw a single stroke operation (path, line, rect, circle) */
 export function drawStrokeOp(ctx: CanvasRenderingContext2D, op: DrawOp): void {
   ctx.strokeStyle = op.colour;
@@ -137,7 +162,9 @@ export function drawTextOp(ctx: CanvasRenderingContext2D, op: DrawOp): void {
   if (!hasText) return;
 
   const defaultSize = op.size || 24;
-  const measured = measureRichText(runs, defaultSize);
+  const measured = getCachedTextMeasurement(op, defaultSize, () =>
+    measureRichText(runs, defaultSize),
+  );
 
   if (measured.width <= 0 || measured.height <= 0) return;
 
@@ -158,7 +185,7 @@ export function drawTextOp(ctx: CanvasRenderingContext2D, op: DrawOp): void {
       ctx.font = buildFontString(seg.size, seg.bold, seg.italic, seg.fontFamily);
       ctx.fillStyle = seg.colour || op.colour;
       ctx.fillText(seg.text, x, y);
-      x += ctx.measureText(seg.text).width;
+      x += seg.width;
     }
     y += line.height;
   }

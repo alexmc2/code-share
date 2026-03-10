@@ -371,6 +371,8 @@ export function Whiteboard() {
     commitText,
     closeTextInputEditor,
     applyFormattingToSelection,
+    toggleBoldOnSelection,
+    toggleItalicOnSelection,
     getSelectionStyle,
     findTextOpAtWorldPoint,
   } = whiteboardText;
@@ -967,6 +969,8 @@ export function Whiteboard() {
             onEscape={closeTextInputEditor}
             onCommit={() => commitText()}
             onSelectionChange={syncTextToolbarFromSelection}
+            onToggleBoldShortcut={toggleBoldOnSelection}
+            onToggleItalicShortcut={toggleItalicOnSelection}
           />
         )}
       </div>

@@ -70,8 +70,8 @@ function applyRunStyleToElement(
 
 /**
  * Extract TextRun[] from a contentEditable element's DOM.
- * Walks child nodes, treating <br> as '\n' and <span> as styled runs.
- * Text nodes outside spans inherit defaults.
+ * Walks child nodes, treating <br> as '\n' and preserving effective text styles
+ * from the containing DOM element.
  */
 export interface RunDefaults {
   size: number;
@@ -98,14 +98,27 @@ export function extractRunsFromDOM(
     };
   }
 
+  if (container.childNodes.length === 0) {
+    return [makeDefaultRun('')];
+  }
+
+  if (
+    container.childNodes.length === 1 &&
+    container.firstChild instanceof HTMLBRElement &&
+    !container.textContent
+  ) {
+    return [makeDefaultRun('')];
+  }
+
   function processNode(node: Node): void {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent ?? '';
       if (text.length > 0) {
-        // Inherit style from parent span if available
+        // Preserve the effective style from the containing element so
+        // contentEditable-generated tags like <strong>/<em> survive commit.
         const parent = node.parentElement;
-        if (parent && parent !== container && parent.tagName === 'SPAN') {
-          runs.push(extractRunFromSpan(parent, text, defaults.size, defaults.colour));
+        if (parent) {
+          runs.push(extractRunFromElement(parent, text, defaults));
         } else {
           runs.push(makeDefaultRun(text));
         }
@@ -141,12 +154,12 @@ export function extractRunsFromDOM(
     }
 
     if (el.tagName === 'SPAN') {
-      // Process direct text children of the span
+      // Process direct text children of the span.
       for (const child of Array.from(el.childNodes)) {
         if (child.nodeType === Node.TEXT_NODE) {
           const text = child.textContent ?? '';
           if (text.length > 0) {
-            runs.push(extractRunFromSpan(el, text, defaults.size, defaults.colour));
+            runs.push(extractRunFromElement(el, text, defaults));
           }
         } else {
           processNode(child);
@@ -189,36 +202,39 @@ export function extractRunsFromDOM(
   return normaliseRuns(runs);
 }
 
-function extractRunFromSpan(
-  span: HTMLElement,
+function extractRunFromElement(
+  el: HTMLElement,
   text: string,
-  defaultSize: number,
-  defaultColour: string,
+  defaults: RunDefaults,
 ): TextRun {
-  const style = span.style;
+  const style = window.getComputedStyle(el);
   const run: TextRun = { text };
 
   // Font size
   const fontSize = parseFloat(style.fontSize);
-  run.size = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : defaultSize;
+  run.size =
+    Number.isFinite(fontSize) && fontSize > 0 ? fontSize : defaults.size;
 
   // Colour
   const colour = style.color;
   if (colour) {
-    run.colour = rgbToHex(colour) || defaultColour;
+    run.colour = rgbToHex(colour) || defaults.colour;
   } else {
-    run.colour = defaultColour;
+    run.colour = defaults.colour;
   }
 
   // Bold
-  run.bold = style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 700 || undefined;
+  run.bold =
+    style.fontWeight === 'bold' ||
+    parseInt(style.fontWeight, 10) >= 700 ||
+    undefined;
 
   // Italic
   run.italic = style.fontStyle === 'italic' || undefined;
 
   // Font family
   const family = style.fontFamily?.replace(/['"]/g, '').trim();
-  if (family) run.fontFamily = family;
+  run.fontFamily = family || defaults.fontFamily || 'sans-serif';
 
   return run;
 }
