@@ -77,6 +77,7 @@ export function extractRunsFromDOM(
   container: HTMLElement,
   defaultSize: number,
   defaultColour: string,
+  defaultFontFamily: string = 'sans-serif',
 ): TextRun[] {
   const runs: TextRun[] = [];
 
@@ -93,6 +94,7 @@ export function extractRunsFromDOM(
             text,
             colour: defaultColour,
             size: defaultSize,
+            fontFamily: defaultFontFamily,
           });
         }
       }
@@ -103,7 +105,7 @@ export function extractRunsFromDOM(
     const el = node as HTMLElement;
 
     if (el.tagName === 'BR') {
-      runs.push({ text: '\n', colour: defaultColour, size: defaultSize });
+      runs.push({ text: '\n', colour: defaultColour, size: defaultSize, fontFamily: defaultFontFamily });
       return;
     }
 
@@ -116,7 +118,7 @@ export function extractRunsFromDOM(
         // Only add newline if the previous run doesn't already end with one
         const lastRun = runs[runs.length - 1];
         if (!lastRun || !lastRun.text.endsWith('\n')) {
-          runs.push({ text: '\n', colour: defaultColour, size: defaultSize });
+          runs.push({ text: '\n', colour: defaultColour, size: defaultSize, fontFamily: defaultFontFamily });
         }
       }
       // Process children of the block

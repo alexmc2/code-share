@@ -23,6 +23,7 @@ interface WhiteboardTextEditorProps {
   initialRuns: TextRun[];
   defaultSize: number;
   defaultColour: string;
+  defaultFontFamily: string;
   screenX: number;
   screenY: number;
   minWidthPx: number;
@@ -43,6 +44,7 @@ export const WhiteboardTextEditor = forwardRef<
     initialRuns,
     defaultSize,
     defaultColour,
+    defaultFontFamily,
     screenX,
     screenY,
     minWidthPx,
@@ -86,8 +88,8 @@ export const WhiteboardTextEditor = forwardRef<
   const getCurrentRuns = useCallback((): TextRun[] => {
     const el = editorRef.current;
     if (!el) return modelRef.current;
-    return extractRunsFromDOM(el, defaultSize, defaultColour);
-  }, [defaultSize, defaultColour]);
+    return extractRunsFromDOM(el, defaultSize, defaultColour, defaultFontFamily);
+  }, [defaultSize, defaultColour, defaultFontFamily]);
 
   const getSelection = useCallback((): FlatSelection | null => {
     const el = editorRef.current;
@@ -220,6 +222,8 @@ export const WhiteboardTextEditor = forwardRef<
         minHeight: `${minHeightPx / scale}px`,
         fontSize: `${baseFontSize}px`,
         lineHeight: '1.2',
+        color: defaultColour,
+        fontFamily: defaultFontFamily,
         background: 'transparent',
         border: lightTextColour
           ? '2px solid rgba(255, 255, 255, 0.85)'
@@ -227,7 +231,7 @@ export const WhiteboardTextEditor = forwardRef<
         borderRadius: '4px',
         padding: '2px 4px',
         zIndex: 50,
-        caretColor: lightTextColour ? '#ffffff' : '#111827',
+        caretColor: defaultColour,
         // Scale all the run font sizes from world coords to screen coords
         transform: `scale(${scale})`,
         transformOrigin: 'top left',

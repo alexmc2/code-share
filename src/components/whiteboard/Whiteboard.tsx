@@ -354,6 +354,7 @@ export function Whiteboard() {
     canvasRef,
     size,
     colour,
+    fontFamily,
     setSuppressedOpIds,
     scheduleViewportRender,
     undoStackRef,
@@ -935,6 +936,7 @@ export function Whiteboard() {
             initialRuns={textInputPos.initialRuns}
             defaultSize={size}
             defaultColour={colour}
+            defaultFontFamily={fontFamily}
             screenX={textInputPos.screenX}
             screenY={textInputPos.screenY}
             minWidthPx={textInputPos.minWidthPx}

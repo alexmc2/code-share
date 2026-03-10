@@ -44,6 +44,7 @@ export function useWhiteboardText(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   defaultSize: number,
   defaultColour: string,
+  defaultFontFamily: string,
   setSuppressedOpIds: (ids: Set<string> | null) => void,
   scheduleViewportRender: () => void,
   undoStackRef: React.RefObject<{ action?: string; op: DrawOp; previousOp?: DrawOp; index?: number }[]>,
@@ -288,7 +289,7 @@ export function useWhiteboardText(
         minWidthPx: 60,
         minHeightPx: defaultMinHeight,
         editingOpId: null,
-        initialRuns: [{ text: '', colour: defaultColour, size: defaultSize }],
+        initialRuns: [{ text: '', colour: defaultColour, size: defaultSize, fontFamily: defaultFontFamily }],
       });
     },
     [
@@ -297,6 +298,7 @@ export function useWhiteboardText(
       findTextOpAtWorldPoint,
       defaultSize,
       defaultColour,
+      defaultFontFamily,
       scheduleViewportRender,
       setSuppressedOpIds,
     ],
