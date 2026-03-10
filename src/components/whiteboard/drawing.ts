@@ -1,4 +1,6 @@
 import type { DrawOp } from './types';
+import { getOpRuns } from './text-model';
+import { measureRichText, buildFontString } from './text-measure';
 
 /** Draw a single stroke operation (path, line, rect, circle) */
 export function drawStrokeOp(ctx: CanvasRenderingContext2D, op: DrawOp): void {
@@ -118,9 +120,9 @@ export function drawEraseStrokeOnFill(
   ctx.restore();
 }
 
-/** Draw a text operation, scaling the text to fit within the bounding box. */
+/** Draw a text operation, supporting both legacy single-style and rich-text runs. */
 export function drawTextOp(ctx: CanvasRenderingContext2D, op: DrawOp): void {
-  if (op.type !== 'text' || !op.text) return;
+  if (op.type !== 'text') return;
   if (
     op.x1 === undefined ||
     op.y1 === undefined ||
@@ -129,45 +131,36 @@ export function drawTextOp(ctx: CanvasRenderingContext2D, op: DrawOp): void {
   )
     return;
 
-  const fontSize = op.size || 24;
-  const boldStr = op.bold ? 'bold ' : '';
-  const italicStr = op.italic ? 'italic ' : '';
-  const family = op.fontFamily || 'sans-serif';
-  const font = `${italicStr}${boldStr}${fontSize}px ${family}`;
+  const runs = getOpRuns(op);
+  // Check if there's any actual text content
+  const hasText = runs.some((r) => r.text.length > 0);
+  if (!hasText) return;
 
-  ctx.save();
-  ctx.font = font;
-  ctx.textBaseline = 'top';
+  const defaultSize = op.size || 24;
+  const measured = measureRichText(runs, defaultSize);
 
-  const lines = op.text.split('\n');
-  const lineHeight = fontSize * 1.2;
-
-  // Compute natural dimensions at the original font size
-  let naturalWidth = 0;
-  for (const line of lines) {
-    const w = ctx.measureText(line).width;
-    if (w > naturalWidth) naturalWidth = w;
-  }
-  const naturalHeight = lineHeight * lines.length;
-
-  if (naturalWidth <= 0 || naturalHeight <= 0) {
-    ctx.restore();
-    return;
-  }
+  if (measured.width <= 0 || measured.height <= 0) return;
 
   const boxWidth = Math.abs(op.x2 - op.x1);
   const boxHeight = Math.abs(op.y2 - op.y1);
-  const scaleX = boxWidth / naturalWidth;
-  const scaleY = boxHeight / naturalHeight;
+  const scaleX = boxWidth / measured.width;
+  const scaleY = boxHeight / measured.height;
 
+  ctx.save();
   ctx.translate(Math.min(op.x1, op.x2), Math.min(op.y1, op.y2));
   ctx.scale(scaleX, scaleY);
-  ctx.fillStyle = op.colour;
-  ctx.font = font;
   ctx.textBaseline = 'top';
 
-  for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], 0, i * lineHeight);
+  let y = 0;
+  for (const line of measured.lines) {
+    let x = 0;
+    for (const seg of line.segments) {
+      ctx.font = buildFontString(seg.size, seg.bold, seg.italic, seg.fontFamily);
+      ctx.fillStyle = seg.colour || op.colour;
+      ctx.fillText(seg.text, x, y);
+      x += ctx.measureText(seg.text).width;
+    }
+    y += line.height;
   }
 
   ctx.restore();

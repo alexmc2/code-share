@@ -1,6 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import * as Y from 'yjs';
-import { nanoid } from 'nanoid';
 import { ImagePlus, X } from 'lucide-react';
 import { useSession } from '../../lib/useSession';
 import { useTheme } from '../../lib/useTheme';
@@ -22,6 +21,8 @@ import { useDrawing } from './useDrawing';
 import { usePointerHandlers } from './usePointerHandlers';
 import { useWhiteboardImages } from './useWhiteboardImages';
 import { useImageSelect } from './useImageSelect';
+import { useWhiteboardText } from './useWhiteboardText';
+import { WhiteboardTextEditor } from './WhiteboardTextEditor';
 import { Toolbar } from './Toolbar';
 
 function normalizeWheelDelta(
@@ -57,17 +58,6 @@ const PASTE_TIP_STORAGE_KEY = 'code-share-whiteboard-paste-tip-seen-v1';
 const PASTE_TIP_ENTER_DELAY_MS = 250;
 const PASTE_TIP_AUTO_HIDE_MS = 15000;
 const PASTE_TIP_EXIT_MS = 240;
-
-interface TextInputState {
-  worldX: number;
-  worldY: number;
-  screenX: number;
-  screenY: number;
-  minWidthPx: number;
-  minHeightPx: number;
-  editingOpId: string | null;
-  initialValue: string;
-}
 
 export function Whiteboard() {
   const { doc } = useSession();
@@ -354,81 +344,34 @@ export function Whiteboard() {
     }
   }, [tool, deselectSelected]);
 
-  // --- Text input state ---
-  const [textInputPos, setTextInputPos] = useState<TextInputState | null>(
-    null,
-  );
-  const textInputRef = useRef<HTMLTextAreaElement>(null);
-  const [textInputKey, setTextInputKey] = useState(0);
+  // --- Text editing (rich text via useWhiteboardText hook) ---
   /** Tells usePointerHandlers to skip setPointerCapture for text tool. */
   const skipCaptureRef = useRef(false);
 
-  const measureTextBounds = useCallback(
-    (
-      text: string,
-      fontSize: number,
-      bold: boolean,
-      italic: boolean,
-      family: string,
-    ): { width: number; height: number } | null => {
-      const measureCanvas = document.createElement('canvas');
-      const measureCtx = measureCanvas.getContext('2d');
-      if (!measureCtx) return null;
-      const boldStr = bold ? 'bold ' : '';
-      const italicStr = italic ? 'italic ' : '';
-      measureCtx.font = `${italicStr}${boldStr}${fontSize}px ${family}`;
-      const lines = text.split('\n');
-      const lineHeight = fontSize * 1.2;
-      let maxWidth = 0;
-      for (const line of lines) {
-        const w = measureCtx.measureText(line).width;
-        if (w > maxWidth) maxWidth = w;
-      }
-      const totalHeight = lineHeight * lines.length;
-      if (maxWidth <= 0 || totalHeight <= 0) return null;
-      return { width: maxWidth, height: totalHeight };
-    },
-    [],
+  const whiteboardText = useWhiteboardText(
+    opsArray,
+    transformRef,
+    canvasRef,
+    size,
+    colour,
+    setSuppressedOpIds,
+    scheduleViewportRender,
+    undoStackRef,
+    redoStackRef,
+    setCanUndo,
+    setCanRedo,
   );
-
-  const closeTextInputEditor = useCallback(() => {
-    setSuppressedOpIds(null);
-    scheduleViewportRender();
-    setTextInputPos(null);
-  }, [setSuppressedOpIds, scheduleViewportRender]);
-
-  const findTextOpAtWorldPoint = useCallback(
-    (worldX: number, worldY: number): DrawOp | null => {
-      const ops = opsArray.toArray();
-      const hitPadding = 5 / transformRef.current.scale;
-      for (let i = ops.length - 1; i >= 0; i--) {
-        const op = ops[i];
-        if (
-          op.type !== 'text' ||
-          op.x1 === undefined ||
-          op.y1 === undefined ||
-          op.x2 === undefined ||
-          op.y2 === undefined
-        ) {
-          continue;
-        }
-        const minX = Math.min(op.x1, op.x2);
-        const maxX = Math.max(op.x1, op.x2);
-        const minY = Math.min(op.y1, op.y2);
-        const maxY = Math.max(op.y1, op.y2);
-        if (
-          worldX >= minX - hitPadding &&
-          worldX <= maxX + hitPadding &&
-          worldY >= minY - hitPadding &&
-          worldY <= maxY + hitPadding
-        ) {
-          return op;
-        }
-      }
-      return null;
-    },
-    [opsArray, transformRef],
-  );
+  const {
+    textInputPos,
+    textEditorRef,
+    openTextInputAtClientPoint,
+    commitText,
+    closeTextInputEditor,
+    applyFormattingToSelection,
+    toggleBoldOnSelection,
+    toggleItalicOnSelection,
+    findTextOpAtWorldPoint,
+  } = whiteboardText;
 
   useEffect(() => {
     const handleDelete = (e: KeyboardEvent) => {
@@ -498,208 +441,10 @@ export function Whiteboard() {
   const [isSpaceDragging, setIsSpaceDragging] = useState(false);
   const spacePanStartRef = useRef<Point>({ x: 0, y: 0 });
 
-  const commitText = useCallback(() => {
-    const input = textInputPos;
-    if (!input) return;
-
-    const textarea = textInputRef.current;
-    const rawValue = textarea?.value ?? input.initialValue;
-    const hasMeaningfulContent = rawValue.trim().length > 0;
-    // Clear textarea value immediately to prevent double-commit (blur + enter race)
-    if (textarea) textarea.value = '';
-
-    const applyOpsMutation = (mutation: () => void) => {
-      if (opsArray.doc) {
-        opsArray.doc.transact(mutation);
-      } else {
-        mutation();
-      }
-    };
-
-    if (input.editingOpId) {
-      const ops = opsArray.toArray();
-      const index = ops.findIndex((op) => op.id === input.editingOpId);
-      const existingOp = index !== -1 ? ops[index] : null;
-      if (existingOp && existingOp.type === 'text') {
-        if (!hasMeaningfulContent) {
-          applyOpsMutation(() => {
-            opsArray.delete(index, 1);
-          });
-          undoStackRef.current.push({
-            action: 'delete',
-            op: existingOp,
-            index,
-          });
-          redoStackRef.current = [];
-          setCanUndo(true);
-          setCanRedo(false);
-          closeTextInputEditor();
-          return;
-        }
-
-        const nextTextBounds = measureTextBounds(
-          rawValue,
-          size,
-          textBold,
-          textItalic,
-          fontFamily,
-        );
-        if (!nextTextBounds) {
-          closeTextInputEditor();
-          return;
-        }
-
-        let scaleX = 1;
-        let scaleY = 1;
-        if (
-          existingOp.x1 !== undefined &&
-          existingOp.y1 !== undefined &&
-          existingOp.x2 !== undefined &&
-          existingOp.y2 !== undefined &&
-          existingOp.text
-        ) {
-          const previousTextBounds = measureTextBounds(
-            existingOp.text,
-            existingOp.size,
-            !!existingOp.bold,
-            !!existingOp.italic,
-            existingOp.fontFamily || 'sans-serif',
-          );
-          if (previousTextBounds) {
-            scaleX =
-              Math.abs(existingOp.x2 - existingOp.x1) / previousTextBounds.width;
-            scaleY =
-              Math.abs(existingOp.y2 - existingOp.y1) /
-              previousTextBounds.height;
-          }
-        }
-
-        const nextOp: DrawOp = {
-          ...existingOp,
-          ts: Date.now(),
-          colour,
-          size,
-          text: rawValue,
-          bold: textBold || undefined,
-          italic: textItalic || undefined,
-          fontFamily: fontFamily !== 'sans-serif' ? fontFamily : undefined,
-          x1: input.worldX,
-          y1: input.worldY,
-          x2: input.worldX + Math.max(1, nextTextBounds.width * scaleX),
-          y2: input.worldY + Math.max(1, nextTextBounds.height * scaleY),
-        };
-
-        const unchanged =
-          existingOp.text === nextOp.text &&
-          existingOp.colour === nextOp.colour &&
-          existingOp.size === nextOp.size &&
-          !!existingOp.bold === !!nextOp.bold &&
-          !!existingOp.italic === !!nextOp.italic &&
-          (existingOp.fontFamily || undefined) ===
-            (nextOp.fontFamily || undefined) &&
-          existingOp.x1 === nextOp.x1 &&
-          existingOp.y1 === nextOp.y1 &&
-          existingOp.x2 === nextOp.x2 &&
-          existingOp.y2 === nextOp.y2;
-
-        if (!unchanged) {
-          applyOpsMutation(() => {
-            opsArray.delete(index, 1);
-            opsArray.insert(index, [nextOp]);
-          });
-          undoStackRef.current.push({
-            action: 'transform',
-            op: nextOp,
-            previousOp: existingOp,
-            index,
-          });
-          redoStackRef.current = [];
-          setCanUndo(true);
-          setCanRedo(false);
-        }
-
-        closeTextInputEditor();
-        return;
-      }
-    }
-
-    if (!hasMeaningfulContent) {
-      closeTextInputEditor();
-      return;
-    }
-
-    const bounds = measureTextBounds(
-      rawValue,
-      size,
-      textBold,
-      textItalic,
-      fontFamily,
-    );
-    if (!bounds) {
-      closeTextInputEditor();
-      return;
-    }
-
-    const op: DrawOp = {
-      id: nanoid(8),
-      ts: Date.now(),
-      type: 'text',
-      colour,
-      size,
-      text: rawValue,
-      bold: textBold || undefined,
-      italic: textItalic || undefined,
-      fontFamily: fontFamily !== 'sans-serif' ? fontFamily : undefined,
-      x1: input.worldX,
-      y1: input.worldY,
-      x2: input.worldX + bounds.width,
-      y2: input.worldY + bounds.height,
-    };
-
-    opsArray.push([op]);
-    undoStackRef.current.push({ action: 'add', op });
-    redoStackRef.current = [];
-    setCanUndo(true);
-    setCanRedo(false);
-    closeTextInputEditor();
-  }, [
-    textInputPos,
-    closeTextInputEditor,
-    measureTextBounds,
-    size,
-    colour,
-    textBold,
-    textItalic,
-    fontFamily,
-    opsArray,
-    undoStackRef,
-    redoStackRef,
-    setCanUndo,
-    setCanRedo,
-  ]);
-
   // Keep ref in sync so setTool can call the latest commitText.
-  // This must run in an effect to satisfy react-hooks/refs.
   useEffect(() => {
     commitTextRef.current = commitText;
   }, [commitText]);
-
-  // Focus textarea reliably after it renders (autoFocus alone is unreliable
-  // when React batches the state update inside a pointer-event handler)
-  useEffect(() => {
-    if (textInputPos && textInputRef.current) {
-      // Double-rAF to ensure the DOM has painted before focusing
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const textarea = textInputRef.current;
-          if (!textarea) return;
-          textarea.focus();
-          const length = textarea.value.length;
-          textarea.setSelectionRange(length, length);
-        });
-      });
-    }
-  }, [textInputPos, textInputKey]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -737,80 +482,6 @@ export function Whiteboard() {
       window.removeEventListener('blur', handleBlur);
     };
   }, [textInputPos]);
-
-  const openTextInputAtClientPoint = useCallback(
-    (clientX: number, clientY: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const transform = transformRef.current;
-      const worldX = (clientX - rect.left) / transform.scale + transform.x;
-      const worldY = (clientY - rect.top) / transform.scale + transform.y;
-      const hitTextOp = findTextOpAtWorldPoint(worldX, worldY);
-      if (
-        hitTextOp &&
-        hitTextOp.x1 !== undefined &&
-        hitTextOp.y1 !== undefined &&
-        hitTextOp.x2 !== undefined &&
-        hitTextOp.y2 !== undefined
-      ) {
-        const minX = Math.min(hitTextOp.x1, hitTextOp.x2);
-        const minY = Math.min(hitTextOp.y1, hitTextOp.y2);
-        const widthPx = Math.max(
-          60,
-          Math.abs(hitTextOp.x2 - hitTextOp.x1) * transform.scale,
-        );
-        const heightPx = Math.max(
-          Math.ceil(hitTextOp.size * transform.scale * 1.2 + 8),
-          Math.abs(hitTextOp.y2 - hitTextOp.y1) * transform.scale,
-        );
-
-        setColour(hitTextOp.colour);
-        setSize(hitTextOp.size);
-        setTextBold(!!hitTextOp.bold);
-        setTextItalic(!!hitTextOp.italic);
-        setFontFamily(hitTextOp.fontFamily || 'sans-serif');
-        setSuppressedOpIds(new Set([hitTextOp.id]));
-        scheduleViewportRender();
-
-        setTextInputKey((k) => k + 1);
-        setTextInputPos({
-          worldX: minX,
-          worldY: minY,
-          screenX: (minX - transform.x) * transform.scale,
-          screenY: (minY - transform.y) * transform.scale,
-          minWidthPx: widthPx,
-          minHeightPx: heightPx,
-          editingOpId: hitTextOp.id,
-          initialValue: hitTextOp.text || '',
-        });
-        return;
-      }
-
-      const defaultMinHeight = Math.ceil(size * transform.scale * 1.2 + 8);
-      setSuppressedOpIds(null);
-      scheduleViewportRender();
-      setTextInputKey((k) => k + 1);
-      setTextInputPos({
-        worldX,
-        worldY,
-        screenX: clientX - rect.left,
-        screenY: clientY - rect.top,
-        minWidthPx: 60,
-        minHeightPx: defaultMinHeight,
-        editingOpId: null,
-        initialValue: '',
-      });
-    },
-    [
-      canvasRef,
-      transformRef,
-      findTextOpAtWorldPoint,
-      size,
-      scheduleViewportRender,
-      setSuppressedOpIds,
-    ],
-  );
 
   // Wrapped handlers that delegate to select tool or drawing tool
   const wrappedHandleStart = useCallback(
@@ -1168,8 +839,14 @@ export function Whiteboard() {
         isMobile={isMobile}
         imagesOnTop={imagesOnTop}
         setTool={setTool}
-        setColour={setColour}
-        setSize={setSize}
+        setColour={(c) => {
+          setColour(c);
+          if (textInputPos) applyFormattingToSelection({ colour: c });
+        }}
+        setSize={(s) => {
+          setSize(s);
+          if (textInputPos) applyFormattingToSelection({ size: s });
+        }}
         onZoomChange={handleZoomChange}
         handleUndo={handleUndo}
         handleRedo={handleRedo}
@@ -1179,9 +856,18 @@ export function Whiteboard() {
         textBold={textBold}
         textItalic={textItalic}
         fontFamily={fontFamily}
-        setTextBold={setTextBold}
-        setTextItalic={setTextItalic}
-        setFontFamily={setFontFamily}
+        setTextBold={(bold) => {
+          setTextBold(bold);
+          if (textInputPos) toggleBoldOnSelection();
+        }}
+        setTextItalic={(italic) => {
+          setTextItalic(italic);
+          if (textInputPos) toggleItalicOnSelection();
+        }}
+        setFontFamily={(f) => {
+          setFontFamily(f);
+          if (textInputPos) applyFormattingToSelection({ fontFamily: f });
+        }}
         preserveTextEditorFocus={!!textInputPos}
       />
 
@@ -1242,75 +928,24 @@ export function Whiteboard() {
           onPointerLeave={pointers.handlePointerLeave}
         />
 
-        {/* Text input overlay */}
+        {/* Rich text editor overlay */}
         {textInputPos && (
-          <textarea
-            key={textInputKey}
-            ref={textInputRef}
-            autoFocus
-            defaultValue={textInputPos.initialValue}
-            className="absolute outline-none resize-none overflow-hidden"
-            style={{
-              left: `${textInputPos.screenX}px`,
-              top: `${textInputPos.screenY}px`,
-              color: colour,
-              fontSize: `${size * (zoomPercent / 100)}px`,
-              fontWeight: textBold ? 'bold' : 'normal',
-              fontStyle: textItalic ? 'italic' : 'normal',
-              fontFamily,
-              caretColor: lightTextColour ? '#ffffff' : '#111827',
-              lineHeight: '1.2',
-              background: 'transparent',
-              border: lightTextColour
-                ? '2px solid rgba(255, 255, 255, 0.85)'
-                : '2px solid #3b82f6',
-              borderRadius: '4px',
-              padding: '2px 4px',
-              minWidth: `${textInputPos.minWidthPx}px`,
-              minHeight: `${textInputPos.minHeightPx}px`,
-              zIndex: 50,
-            }}
-            onBlur={(e) => {
-              const nextFocus = e.relatedTarget;
-              if (
-                nextFocus instanceof Element &&
-                nextFocus.closest('[data-text-editor-focus-safe="true"]')
-              ) {
-                return;
-              }
-              if (!nextFocus) {
-                requestAnimationFrame(() => {
-                  const active = document.activeElement;
-                  if (
-                    active instanceof Element &&
-                    active.closest('[data-text-editor-focus-safe="true"]')
-                  ) {
-                    return;
-                  }
-                  commitText();
-                });
-                return;
-              }
+          <WhiteboardTextEditor
+            ref={textEditorRef}
+            initialRuns={textInputPos.initialRuns}
+            defaultSize={size}
+            defaultColour={colour}
+            screenX={textInputPos.screenX}
+            screenY={textInputPos.screenY}
+            minWidthPx={textInputPos.minWidthPx}
+            minHeightPx={textInputPos.minHeightPx}
+            scale={zoomPercent / 100}
+            lightTextColour={lightTextColour}
+            onBlur={() => {
               commitText();
             }}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === 'Escape') {
-                closeTextInputEditor();
-              } else if (
-                e.key === 'Enter' &&
-                (e.metaKey || e.ctrlKey) &&
-                !e.shiftKey
-              ) {
-                e.preventDefault();
-                commitText();
-              }
-            }}
-            onInput={(e) => {
-              const target = e.currentTarget;
-              target.style.height = 'auto';
-              target.style.height = `${target.scrollHeight}px`;
-            }}
+            onEscape={closeTextInputEditor}
+            onCommit={() => commitText()}
           />
         )}
       </div>

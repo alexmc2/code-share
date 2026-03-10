@@ -46,6 +46,18 @@ export interface DrawOp {
   bold?: boolean;
   italic?: boolean;
   fontFamily?: string;
+  /** Rich text runs – when present, these override the flat text/bold/italic/fontFamily fields for rendering. */
+  runs?: TextRun[];
+}
+
+/** A run of text with uniform formatting within a rich text op. */
+export interface TextRun {
+  text: string;
+  colour?: string;
+  size?: number;
+  bold?: boolean;
+  italic?: boolean;
+  fontFamily?: string;
 }
 
 export const FONT_FAMILIES = [
