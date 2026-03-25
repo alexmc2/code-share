@@ -3,6 +3,7 @@ import type { DrawOp } from './types';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './types';
 import {
   drawStrokeOp,
+  drawTextOp,
   drawEraseStrokePath,
   drawEraseStrokeOnFill,
 } from './drawing';
@@ -47,6 +48,12 @@ export function useWhiteboardCanvas(
   const overlayRendererRef = useRef<OverlayRenderer | null>(null);
   const suppressedOpIdsRef = useRef<Set<string>>(new Set());
   const outsideWorldFillColorRef = useRef(isDark ? '#111827' : '#ffffff');
+
+  // Image ops to draw directly on the viewport canvas at full resolution
+  // (bypasses the world canvas intermediate buffer to prevent blurry upscaling)
+  const viewportImageOpsRef = useRef<DrawOp[]>([]);
+  const getCachedImageRef = useRef(getCachedImage);
+  getCachedImageRef.current = getCachedImage;
 
   // Get canvas context
   const getContext = useCallback(() => {
@@ -293,6 +300,8 @@ export function useWhiteboardCanvas(
             visibleStrokeCtx.drawImage(tempCanvas, 0, 0);
           }
         }
+      } else if (op.type === 'text') {
+        drawTextOp(visibleStrokeCtx, op);
       } else {
         // Draw stroke to both stroke canvases
         drawStrokeOp(boundaryStrokeCtx, op);
@@ -300,50 +309,10 @@ export function useWhiteboardCanvas(
       }
     }
 
-    // Draw deferred images on top (only in "images on top" mode)
-    for (const op of deferredImages) {
-      if (
-        op.imageId &&
-        op.x1 !== undefined &&
-        op.y1 !== undefined &&
-        op.x2 !== undefined &&
-        op.y2 !== undefined &&
-        getCachedImage
-      ) {
-        const bitmap = getCachedImage(op.imageId);
-        if (bitmap) {
-          visibleStrokeCtx.drawImage(
-            bitmap,
-            op.x1,
-            op.y1,
-            op.x2 - op.x1,
-            op.y2 - op.y1,
-          );
-        } else {
-          visibleStrokeCtx.save();
-          visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.15)';
-          visibleStrokeCtx.fillRect(op.x1, op.y1, op.x2 - op.x1, op.y2 - op.y1);
-          visibleStrokeCtx.strokeStyle = 'rgba(128, 128, 128, 0.4)';
-          visibleStrokeCtx.lineWidth = 2;
-          visibleStrokeCtx.strokeRect(
-            op.x1,
-            op.y1,
-            op.x2 - op.x1,
-            op.y2 - op.y1,
-          );
-          visibleStrokeCtx.fillStyle = 'rgba(128, 128, 128, 0.6)';
-          visibleStrokeCtx.font = '14px sans-serif';
-          visibleStrokeCtx.textAlign = 'center';
-          visibleStrokeCtx.textBaseline = 'middle';
-          visibleStrokeCtx.fillText(
-            'Loading…',
-            (op.x1 + op.x2) / 2,
-            (op.y1 + op.y2) / 2,
-          );
-          visibleStrokeCtx.restore();
-        }
-      }
-    }
+    // Store deferred images (imagesOnTop mode) for high-res viewport-direct
+    // rendering. Drawing them on the world canvas would rasterize at world-pixel
+    // resolution (3600×3600), causing blurry upscaling on the viewport.
+    viewportImageOpsRef.current = deferredImages;
 
     // Match outside-world background to the fill layer's corner color so a
     // background flood fill appears continuous across the visible viewport.
@@ -427,6 +396,57 @@ export function useWhiteboardCanvas(
         dstW,
         dstH,
       );
+    }
+
+    // Draw deferred images directly on the viewport canvas at full resolution.
+    // This avoids the double-rasterization that occurs when images are baked into
+    // the fixed-size world canvas and then scaled to the viewport.
+    const viewportImages = viewportImageOpsRef.current;
+    const getImage = getCachedImageRef.current;
+    if (viewportImages.length > 0) {
+      ctx.save();
+      const imgWorldToPhys = dpr * transform.scale;
+      ctx.scale(imgWorldToPhys, imgWorldToPhys);
+      ctx.translate(-transform.x, -transform.y);
+
+      for (const op of viewportImages) {
+        if (
+          op.imageId &&
+          op.x1 !== undefined &&
+          op.y1 !== undefined &&
+          op.x2 !== undefined &&
+          op.y2 !== undefined
+        ) {
+          const bitmap = getImage?.(op.imageId);
+          if (bitmap) {
+            ctx.drawImage(
+              bitmap,
+              op.x1,
+              op.y1,
+              op.x2 - op.x1,
+              op.y2 - op.y1,
+            );
+          } else {
+            ctx.save();
+            ctx.fillStyle = 'rgba(128, 128, 128, 0.15)';
+            ctx.fillRect(op.x1, op.y1, op.x2 - op.x1, op.y2 - op.y1);
+            ctx.strokeStyle = 'rgba(128, 128, 128, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(op.x1, op.y1, op.x2 - op.x1, op.y2 - op.y1);
+            ctx.fillStyle = 'rgba(128, 128, 128, 0.6)';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(
+              'Loading\u2026',
+              (op.x1 + op.x2) / 2,
+              (op.y1 + op.y2) / 2,
+            );
+            ctx.restore();
+          }
+        }
+      }
+      ctx.restore();
     }
 
     // Draw current operation preview

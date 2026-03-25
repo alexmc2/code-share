@@ -1,0 +1,427 @@
+import { useState, useRef, useCallback } from 'react';
+import { nanoid } from 'nanoid';
+import type { DrawOp, TextRun, UndoEntry } from './types';
+import type { TextEditorHandle } from './WhiteboardTextEditor';
+import type { RunStyle } from './text-model';
+import {
+  normaliseRuns,
+  runsToPlainText,
+  getOpRuns,
+  applyStyleToRange,
+  getStyleAtOffset,
+  allInRangeHaveStyle,
+  splitRunsAt,
+} from './text-model';
+import { measureRichText } from './text-measure';
+import type * as Y from 'yjs';
+
+const CARET_STYLE_MARKER = '\u200B';
+
+function toStyledRun(text: string, style: Required<RunStyle>): TextRun {
+  return {
+    text,
+    colour: style.colour,
+    size: style.size,
+    fontFamily: style.fontFamily,
+    bold: style.bold || undefined,
+    italic: style.italic || undefined,
+  };
+}
+
+function insertCaretStyleMarker(
+  runs: TextRun[],
+  offset: number,
+  style: Required<RunStyle>,
+): TextRun[] {
+  const [before, after] = splitRunsAt(runs, offset);
+  return normaliseRuns([
+    ...before,
+    toStyledRun(CARET_STYLE_MARKER, style),
+    ...after,
+  ]);
+}
+
+function stripCaretStyleMarkers(runs: TextRun[]): TextRun[] {
+  return normaliseRuns(
+    runs.map((run) => ({
+      ...run,
+      text: run.text.replaceAll(CARET_STYLE_MARKER, ''),
+    })),
+  );
+}
+
+export interface TextInputState {
+  worldX: number;
+  worldY: number;
+  screenX: number;
+  screenY: number;
+  minWidthPx: number;
+  minHeightPx: number;
+  editingOpId: string | null;
+  initialRuns: TextRun[];
+}
+
+export interface UseWhiteboardTextResult {
+  textInputPos: TextInputState | null;
+  textEditorRef: React.RefObject<TextEditorHandle | null>;
+  openTextInputAtClientPoint: (clientX: number, clientY: number) => void;
+  commitText: () => void;
+  closeTextInputEditor: () => void;
+  applyFormattingToSelection: (style: Partial<RunStyle>) => void;
+  toggleBoldOnSelection: () => void;
+  toggleItalicOnSelection: () => void;
+  getSelectionStyle: () => Required<RunStyle> | null;
+  findTextOpAtWorldPoint: (worldX: number, worldY: number) => DrawOp | null;
+}
+
+export function useWhiteboardText(
+  opsArray: Y.Array<DrawOp>,
+  transformRef: React.RefObject<{ x: number; y: number; scale: number }>,
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  defaultSize: number,
+  defaultColour: string,
+  defaultFontFamily: string,
+  defaultBold: boolean,
+  defaultItalic: boolean,
+  setSuppressedOpIds: (ids: Set<string> | null) => void,
+  undoStackRef: React.RefObject<UndoEntry[]>,
+  redoStackRef: React.RefObject<UndoEntry[]>,
+  setCanUndo: (v: boolean) => void,
+  setCanRedo: (v: boolean) => void,
+): UseWhiteboardTextResult {
+  const [textInputPos, setTextInputPos] = useState<TextInputState | null>(null);
+  const textEditorRef = useRef<TextEditorHandle | null>(null);
+  const closeTextInputEditor = useCallback(() => {
+    setSuppressedOpIds(null);
+    setTextInputPos(null);
+  }, [setSuppressedOpIds]);
+
+  const findTextOpAtWorldPoint = useCallback(
+    (worldX: number, worldY: number): DrawOp | null => {
+      const ops = opsArray.toArray();
+      const hitPadding = 5 / transformRef.current.scale;
+      for (let i = ops.length - 1; i >= 0; i--) {
+        const op = ops[i];
+        if (
+          op.type !== 'text' ||
+          op.x1 === undefined ||
+          op.y1 === undefined ||
+          op.x2 === undefined ||
+          op.y2 === undefined
+        ) {
+          continue;
+        }
+        const minX = Math.min(op.x1, op.x2);
+        const maxX = Math.max(op.x1, op.x2);
+        const minY = Math.min(op.y1, op.y2);
+        const maxY = Math.max(op.y1, op.y2);
+        if (
+          worldX >= minX - hitPadding &&
+          worldX <= maxX + hitPadding &&
+          worldY >= minY - hitPadding &&
+          worldY <= maxY + hitPadding
+        ) {
+          return op;
+        }
+      }
+      return null;
+    },
+    [opsArray, transformRef],
+  );
+
+  const commitText = useCallback(() => {
+    const input = textInputPos;
+    if (!input) return;
+
+    const editor = textEditorRef.current;
+    const rawRuns = editor ? editor.getRuns() : input.initialRuns;
+    const runs = stripCaretStyleMarkers(rawRuns);
+    const plainText = runsToPlainText(runs);
+    const hasMeaningfulContent = plainText.trim().length > 0;
+
+    const applyOpsMutation = (mutation: () => void) => {
+      if (opsArray.doc) {
+        opsArray.doc.transact(mutation);
+      } else {
+        mutation();
+      }
+    };
+
+    if (input.editingOpId) {
+      const ops = opsArray.toArray();
+      const index = ops.findIndex((op) => op.id === input.editingOpId);
+      const existingOp = index !== -1 ? ops[index] : null;
+      if (existingOp && existingOp.type === 'text') {
+        if (!hasMeaningfulContent) {
+          applyOpsMutation(() => {
+            opsArray.delete(index, 1);
+          });
+          undoStackRef.current.push({
+            action: 'delete',
+            op: existingOp,
+            index,
+          });
+          redoStackRef.current = [];
+          setCanUndo(true);
+          setCanRedo(false);
+          closeTextInputEditor();
+          return;
+        }
+
+        const normalised = normaliseRuns(runs);
+        // Use the first run's size as the reference default — this MUST match
+        // what drawTextOp uses (op.size) so the bounding box scale is consistent.
+        const refSize = normalised[0]?.size || defaultSize;
+        const measured = measureRichText(normalised, refSize);
+
+        // Preserve any scale factor from previous resize/transform
+        let scaleX = 1;
+        let scaleY = 1;
+        if (
+          existingOp.x1 !== undefined &&
+          existingOp.y1 !== undefined &&
+          existingOp.x2 !== undefined &&
+          existingOp.y2 !== undefined
+        ) {
+          const prevRuns = getOpRuns(existingOp);
+          const prevRefSize = existingOp.size || defaultSize;
+          const prevMeasured = measureRichText(prevRuns, prevRefSize);
+          scaleX = Math.abs(existingOp.x2 - existingOp.x1) / prevMeasured.width;
+          scaleY = Math.abs(existingOp.y2 - existingOp.y1) / prevMeasured.height;
+        }
+
+        const nextOp: DrawOp = {
+          ...existingOp,
+          ts: Date.now(),
+          runs: normalised,
+          // Keep legacy fields for backward compat
+          text: plainText,
+          colour: normalised[0]?.colour || defaultColour,
+          size: refSize,
+          bold: normalised[0]?.bold || undefined,
+          italic: normalised[0]?.italic || undefined,
+          fontFamily: normalised[0]?.fontFamily || undefined,
+          x1: input.worldX,
+          y1: input.worldY,
+          x2: input.worldX + Math.max(1, measured.width * scaleX),
+          y2: input.worldY + Math.max(1, measured.height * scaleY),
+        };
+
+        applyOpsMutation(() => {
+          opsArray.delete(index, 1);
+          opsArray.insert(index, [nextOp]);
+        });
+        undoStackRef.current.push({
+          action: 'transform',
+          op: nextOp,
+          previousOp: existingOp,
+          index,
+        });
+        redoStackRef.current = [];
+        setCanUndo(true);
+        setCanRedo(false);
+        closeTextInputEditor();
+        return;
+      }
+    }
+
+    if (!hasMeaningfulContent) {
+      closeTextInputEditor();
+      return;
+    }
+
+    const normalised = normaliseRuns(runs);
+    const refSize = normalised[0]?.size || defaultSize;
+    const measured = measureRichText(normalised, refSize);
+
+    const op: DrawOp = {
+      id: nanoid(8),
+      ts: Date.now(),
+      type: 'text',
+      runs: normalised,
+      text: plainText,
+      colour: normalised[0]?.colour || defaultColour,
+      size: refSize,
+      bold: normalised[0]?.bold || undefined,
+      italic: normalised[0]?.italic || undefined,
+      fontFamily: normalised[0]?.fontFamily || undefined,
+      x1: input.worldX,
+      y1: input.worldY,
+      x2: input.worldX + measured.width,
+      y2: input.worldY + measured.height,
+    };
+
+    opsArray.push([op]);
+    undoStackRef.current.push({ action: 'add', op });
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+    closeTextInputEditor();
+  }, [
+    textInputPos,
+    closeTextInputEditor,
+    defaultSize,
+    defaultColour,
+    opsArray,
+    undoStackRef,
+    redoStackRef,
+    setCanUndo,
+    setCanRedo,
+  ]);
+
+  const openTextInputAtClientPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const transform = transformRef.current;
+      const worldX = (clientX - rect.left) / transform.scale + transform.x;
+      const worldY = (clientY - rect.top) / transform.scale + transform.y;
+      // Editor has border (2px) + padding (4px left, 2px top) in local/world coords.
+      // Offset screenX/Y so the text content aligns with the world coordinate.
+      const editorOffsetX = (2 + 4) * transform.scale; // border + padding-left
+      const editorOffsetY = (2 + 2) * transform.scale; // border + padding-top
+      const hitTextOp = findTextOpAtWorldPoint(worldX, worldY);
+
+      if (
+        hitTextOp &&
+        hitTextOp.x1 !== undefined &&
+        hitTextOp.y1 !== undefined &&
+        hitTextOp.x2 !== undefined &&
+        hitTextOp.y2 !== undefined
+      ) {
+        const minX = Math.min(hitTextOp.x1, hitTextOp.x2);
+        const minY = Math.min(hitTextOp.y1, hitTextOp.y2);
+        const widthPx = Math.max(
+          60,
+          Math.abs(hitTextOp.x2 - hitTextOp.x1) * transform.scale,
+        );
+        const heightPx = Math.max(
+          Math.ceil((hitTextOp.size || defaultSize) * transform.scale * 1.2 + 8),
+          Math.abs(hitTextOp.y2 - hitTextOp.y1) * transform.scale,
+        );
+
+        const initialRuns = getOpRuns(hitTextOp);
+        setSuppressedOpIds(new Set([hitTextOp.id]));
+
+
+        setTextInputPos({
+          worldX: minX,
+          worldY: minY,
+          screenX: (minX - transform.x) * transform.scale - editorOffsetX,
+          screenY: (minY - transform.y) * transform.scale - editorOffsetY,
+          minWidthPx: widthPx,
+          minHeightPx: heightPx,
+          editingOpId: hitTextOp.id,
+          initialRuns,
+        });
+        return;
+      }
+
+      const defaultMinHeight = Math.ceil(defaultSize * transform.scale * 1.2 + 8);
+      setSuppressedOpIds(null);
+      setTextInputPos({
+        worldX,
+        worldY,
+        screenX: clientX - rect.left - editorOffsetX,
+        screenY: clientY - rect.top - editorOffsetY,
+        minWidthPx: 60,
+        minHeightPx: defaultMinHeight,
+        editingOpId: null,
+        initialRuns: [{ text: '', colour: defaultColour, size: defaultSize, fontFamily: defaultFontFamily, bold: defaultBold || undefined, italic: defaultItalic || undefined }],
+      });
+    },
+    [
+      canvasRef,
+      transformRef,
+      findTextOpAtWorldPoint,
+      defaultSize,
+      defaultColour,
+      defaultFontFamily,
+      defaultBold,
+      defaultItalic,
+      setSuppressedOpIds,
+    ],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Selection-based formatting
+  // ---------------------------------------------------------------------------
+
+  const applyFormattingToSelection = useCallback(
+    (style: Partial<RunStyle>) => {
+      const editor = textEditorRef.current;
+      if (!editor) return;
+
+      const runs = editor.getRuns();
+      const sel = editor.getSelection();
+      if (!sel) return;
+
+      const { start, end } = sel;
+      if (start === end) {
+        const caretStyle = { ...getStyleAtOffset(runs, start), ...style };
+        const updated = insertCaretStyleMarker(runs, start, caretStyle);
+        editor.setRuns(updated, { start, end: start + 1 });
+        return;
+      }
+
+      const updated = applyStyleToRange(runs, start, end, style);
+      editor.setRuns(updated, sel);
+    },
+    [],
+  );
+
+  const toggleBoldOnSelection = useCallback(() => {
+    const editor = textEditorRef.current;
+    if (!editor) return;
+    const runs = editor.getRuns();
+    const sel = editor.getSelection();
+    if (!sel) return;
+    const { start, end } = sel;
+    const allBold =
+      start < end
+        ? allInRangeHaveStyle(runs, start, end, 'bold')
+        : getStyleAtOffset(runs, start).bold;
+    applyFormattingToSelection({ bold: !allBold });
+  }, [applyFormattingToSelection]);
+
+  const toggleItalicOnSelection = useCallback(() => {
+    const editor = textEditorRef.current;
+    if (!editor) return;
+    const runs = editor.getRuns();
+    const sel = editor.getSelection();
+    if (!sel) return;
+    const { start, end } = sel;
+    const allItalic =
+      start < end
+        ? allInRangeHaveStyle(runs, start, end, 'italic')
+        : getStyleAtOffset(runs, start).italic;
+    applyFormattingToSelection({ italic: !allItalic });
+  }, [applyFormattingToSelection]);
+
+  const getSelectionStyle = useCallback((): Required<RunStyle> | null => {
+    const editor = textEditorRef.current;
+    if (!editor) return null;
+    const runs = editor.getRuns();
+    const sel = editor.getSelection();
+    if (!sel) return null;
+    // For non-collapsed selections (e.g. caret style markers), offset by +1
+    // so getStyleAtOffset reads the style of the selected content itself
+    // rather than preferring the run to the left of the selection boundary.
+    const offset = sel.start < sel.end ? sel.start + 1 : sel.start;
+    return getStyleAtOffset(runs, offset);
+  }, []);
+
+  return {
+    textInputPos,
+    textEditorRef,
+    openTextInputAtClientPoint,
+    commitText,
+    closeTextInputEditor,
+    applyFormattingToSelection,
+    toggleBoldOnSelection,
+    toggleItalicOnSelection,
+    getSelectionStyle,
+    findTextOpAtWorldPoint,
+  };
+}

@@ -6,7 +6,8 @@ export type Tool =
   | 'rect'
   | 'circle'
   | 'eraser'
-  | 'fill';
+  | 'fill'
+  | 'text';
 
 export interface Point {
   x: number;
@@ -30,7 +31,8 @@ export interface DrawOp {
     | 'erase'
     | 'fill'
     | 'eraseStroke'
-    | 'image';
+    | 'image'
+    | 'text';
   colour: string;
   size: number;
   points?: Point[];
@@ -40,7 +42,30 @@ export interface DrawOp {
   y2?: number;
   eraseIds?: string[];
   imageId?: string; // Key into Y.Map('whiteboard-images')
+  text?: string;
+  bold?: boolean;
+  italic?: boolean;
+  fontFamily?: string;
+  /** Rich text runs – when present, these override the flat text/bold/italic/fontFamily fields for rendering. */
+  runs?: TextRun[];
 }
+
+/** A run of text with uniform formatting within a rich text op. */
+export interface TextRun {
+  text: string;
+  colour?: string;
+  size?: number;
+  bold?: boolean;
+  italic?: boolean;
+  fontFamily?: string;
+}
+
+export const FONT_FAMILIES = [
+  { label: 'Sans', value: 'sans-serif' },
+  { label: 'Serif', value: 'serif' },
+  { label: 'Mono', value: 'monospace' },
+  { label: 'Cursive', value: 'cursive' },
+];
 
 export type UndoAction = 'add' | 'transform' | 'delete';
 
@@ -77,6 +102,14 @@ export const ERASER_SIZES = [
   { label: 'S', value: 10 },
   { label: 'M', value: 30 },
   { label: 'L', value: 60 },
+];
+
+// Text font sizes (world-unit pixels)
+export const TEXT_SIZES = [
+  { label: 'S', value: 24 },
+  { label: 'M', value: 36 },
+  { label: 'L', value: 56 },
+  { label: 'XL', value: 80 },
 ];
 
 // Virtual canvas size

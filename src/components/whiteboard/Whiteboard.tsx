@@ -7,6 +7,7 @@ import type { Tool, DrawOp, Point } from './types';
 import {
   SIZES,
   ERASER_SIZES,
+  TEXT_SIZES,
   MAX_IMAGES,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -20,6 +21,8 @@ import { useDrawing } from './useDrawing';
 import { usePointerHandlers } from './usePointerHandlers';
 import { useWhiteboardImages } from './useWhiteboardImages';
 import { useImageSelect } from './useImageSelect';
+import { useWhiteboardText } from './useWhiteboardText';
+import { WhiteboardTextEditor } from './WhiteboardTextEditor';
 import { Toolbar } from './Toolbar';
 
 function normalizeWheelDelta(
@@ -41,6 +44,16 @@ function isTypingInEditableField(target: EventTarget | null): boolean {
   );
 }
 
+function isLightHexColour(colour: string): boolean {
+  const hex = colour.trim().replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return false;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance >= 0.72;
+}
+
 const PASTE_TIP_STORAGE_KEY = 'code-share-whiteboard-paste-tip-seen-v1';
 const PASTE_TIP_ENTER_DELAY_MS = 250;
 const PASTE_TIP_AUTO_HIDE_MS = 15000;
@@ -54,9 +67,14 @@ export function Whiteboard() {
   const [tool, setToolRaw] = useState<Tool>('pen');
   const [colour, setColour] = useState(isDark ? '#ffffff' : '#000000');
   const [size, setSize] = useState(5);
+  const [textBold, setTextBold] = useState(false);
+  const [textItalic, setTextItalic] = useState(false);
+  const [fontFamily, setFontFamily] = useState('sans-serif');
+  const commitTextRef = useRef<() => void>(() => {});
   const [selectCursor, setSelectCursor] = useState('default');
   const selectCursorRef = useRef('default');
   const [zoomPercent, setZoomPercent] = useState(100);
+  const [editorScale, setEditorScale] = useState(1);
   const [showPasteTipToast, setShowPasteTipToast] = useState(() => {
     if (typeof window === 'undefined') return false;
     try {
@@ -76,18 +94,30 @@ export function Whiteboard() {
 
   // Wrap setTool to adjust size when switching to/from eraser
   const setTool = useCallback((newTool: Tool) => {
+    // Commit any in-progress text when switching away from text tool
+    if (newTool !== 'text') {
+      commitTextRef.current();
+    }
+    skipCaptureRef.current = newTool === 'text';
     setToolRaw(newTool);
     if (newTool === 'select') {
       selectCursorRef.current = 'default';
       setSelectCursor('default');
     }
-    if (newTool === 'eraser') {
+    if (newTool === 'text') {
+      setSize((prev) => {
+        if (TEXT_SIZES.some((s) => s.value === prev)) return prev;
+        return TEXT_SIZES[1].value;
+      });
+    } else if (newTool === 'eraser') {
       setSize(ERASER_SIZES[1].value);
     } else if (newTool !== 'select') {
       setSize((prev) => {
         if (
-          ERASER_SIZES.some((s) => s.value === prev) &&
-          !SIZES.some((s) => s.value === prev)
+          (ERASER_SIZES.some((s) => s.value === prev) &&
+            !SIZES.some((s) => s.value === prev)) ||
+          (TEXT_SIZES.some((s) => s.value === prev) &&
+            !SIZES.some((s) => s.value === prev))
         ) {
           return SIZES[1].value;
         }
@@ -159,6 +189,7 @@ export function Whiteboard() {
   const setZoomFromScale = useCallback((scale: number) => {
     const next = Math.round(scale * 100);
     setZoomPercent((prev) => (prev === next ? prev : next));
+    setEditorScale((prev) => (prev === scale ? prev : scale));
   }, []);
 
   const refreshZoomPercent = useCallback(() => {
@@ -315,6 +346,53 @@ export function Whiteboard() {
     }
   }, [tool, deselectSelected]);
 
+  // --- Text editing (rich text via useWhiteboardText hook) ---
+  /** Tells usePointerHandlers to skip setPointerCapture for text tool. */
+  const skipCaptureRef = useRef(false);
+
+  const whiteboardText = useWhiteboardText(
+    opsArray,
+    transformRef,
+    canvasRef,
+    size,
+    colour,
+    fontFamily,
+    textBold,
+    textItalic,
+    setSuppressedOpIds,
+    undoStackRef,
+    redoStackRef,
+    setCanUndo,
+    setCanRedo,
+  );
+  const {
+    textInputPos,
+    textEditorRef,
+    openTextInputAtClientPoint,
+    commitText,
+    closeTextInputEditor,
+    applyFormattingToSelection,
+    toggleBoldOnSelection,
+    toggleItalicOnSelection,
+    getSelectionStyle,
+    findTextOpAtWorldPoint,
+  } = whiteboardText;
+
+  const syncTextToolbarFromSelection = useCallback(() => {
+    if (!textInputPos) return;
+
+    const style = getSelectionStyle();
+    if (!style) return;
+
+    setColour((prev) => (prev === style.colour ? prev : style.colour));
+    setSize((prev) => (prev === style.size ? prev : style.size));
+    setFontFamily((prev) =>
+      prev === style.fontFamily ? prev : style.fontFamily,
+    );
+    setTextBold((prev) => (prev === style.bold ? prev : style.bold));
+    setTextItalic((prev) => (prev === style.italic ? prev : style.italic));
+  }, [textInputPos, getSelectionStyle]);
+
   useEffect(() => {
     const handleDelete = (e: KeyboardEvent) => {
       if (isTypingInEditableField(e.target)) return;
@@ -333,12 +411,13 @@ export function Whiteboard() {
     return () => document.removeEventListener('keydown', handleDelete);
   }, [getSelectedOpId, deleteSelected]);
 
-  // Tool shortcuts: V=select, B=pen, E=eraser, G=fill, S=cycle shape tools
+  // Tool shortcuts: V=select, B=pen, E=eraser, G=fill, T=text, S=cycle shape tools
   useEffect(() => {
     const handleToolShortcuts = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.repeat) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (isTypingInEditableField(e.target)) return;
+      if (textInputPos) return;
       if (!containerRef.current || containerRef.current.offsetParent === null) {
         return;
       }
@@ -356,6 +435,9 @@ export function Whiteboard() {
       } else if (key === 'g') {
         e.preventDefault();
         setTool('fill');
+      } else if (key === 't') {
+        e.preventDefault();
+        setTool('text');
       } else if (key === 's') {
         e.preventDefault();
         if (tool === 'line') {
@@ -370,7 +452,7 @@ export function Whiteboard() {
 
     document.addEventListener('keydown', handleToolShortcuts);
     return () => document.removeEventListener('keydown', handleToolShortcuts);
-  }, [setTool, tool]);
+  }, [setTool, tool, textInputPos]);
 
   // --- Spacebar + drag pan ---
   const isSpaceHeldRef = useRef(false);
@@ -379,9 +461,15 @@ export function Whiteboard() {
   const [isSpaceDragging, setIsSpaceDragging] = useState(false);
   const spacePanStartRef = useRef<Point>({ x: 0, y: 0 });
 
+  // Keep ref in sync so setTool can call the latest commitText.
+  useEffect(() => {
+    commitTextRef.current = commitText;
+  }, [commitText]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== ' ' || e.repeat) return;
+      if (textInputPos) return;
       if (isTypingInEditableField(e.target)) return;
       if (!containerRef.current || containerRef.current.offsetParent === null)
         return;
@@ -413,7 +501,7 @@ export function Whiteboard() {
       document.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, []);
+  }, [textInputPos]);
 
   // Wrapped handlers that delegate to select tool or drawing tool
   const wrappedHandleStart = useCallback(
@@ -428,11 +516,48 @@ export function Whiteboard() {
       }
       if (tool === 'select') {
         handleSelectStart(e);
+      } else if (tool === 'text') {
+        // Commit any in-progress text on pointer down.
+        // Actual input placement is done on click, which is more reliable for focus.
+        commitText();
       } else {
         drawing.handleStart(e);
       }
     },
-    [tool, handleSelectStart, drawing],
+    [tool, handleSelectStart, drawing, commitText],
+  );
+
+  const handleCanvasClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (tool !== 'text') return;
+      if (isSpaceHeldRef.current) return;
+      openTextInputAtClientPoint(e.clientX, e.clientY);
+    },
+    [tool, openTextInputAtClientPoint],
+  );
+
+  const handleCanvasDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (textInputPos) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const transform = transformRef.current;
+      const worldX = (e.clientX - rect.left) / transform.scale + transform.x;
+      const worldY = (e.clientY - rect.top) / transform.scale + transform.y;
+      const hitTextOp = findTextOpAtWorldPoint(worldX, worldY);
+      if (!hitTextOp) return;
+      setTool('text');
+      openTextInputAtClientPoint(e.clientX, e.clientY);
+    },
+    [
+      textInputPos,
+      canvasRef,
+      transformRef,
+      findTextOpAtWorldPoint,
+      setTool,
+      openTextInputAtClientPoint,
+    ],
   );
 
   const wrappedHandleMove = useCallback(
@@ -500,6 +625,7 @@ export function Whiteboard() {
     wrappedHandleEnd,
     scheduleViewportRender,
     setZoomFromScale,
+    skipCaptureRef,
   );
 
   // --- Image upload handler ---
@@ -596,6 +722,7 @@ export function Whiteboard() {
   // Generate custom round cursor for pen and eraser tools
   const brushCursor = (() => {
     if (tool === 'select') return 'default';
+    if (tool === 'text') return 'text';
     if (tool !== 'eraser' && tool !== 'pen') return 'crosshair';
 
     const screenSize = Math.max(8, Math.min(128, size));
@@ -718,6 +845,7 @@ export function Whiteboard() {
     : tool === 'select'
       ? selectCursor
       : brushCursor;
+  const lightTextColour = isLightHexColour(colour);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -731,14 +859,36 @@ export function Whiteboard() {
         isMobile={isMobile}
         imagesOnTop={imagesOnTop}
         setTool={setTool}
-        setColour={setColour}
-        setSize={setSize}
+        setColour={(c) => {
+          setColour(c);
+          if (textInputPos) applyFormattingToSelection({ colour: c });
+        }}
+        setSize={(s) => {
+          setSize(s);
+          if (textInputPos) applyFormattingToSelection({ size: s });
+        }}
         onZoomChange={handleZoomChange}
         handleUndo={handleUndo}
         handleRedo={handleRedo}
         handleClear={handleClear}
         onImageUpload={handleImageUpload}
         onToggleImagesOnTop={toggleImagesOnTop}
+        textBold={textBold}
+        textItalic={textItalic}
+        fontFamily={fontFamily}
+        setTextBold={(bold) => {
+          setTextBold(bold);
+          if (textInputPos) applyFormattingToSelection({ bold });
+        }}
+        setTextItalic={(italic) => {
+          setTextItalic(italic);
+          if (textInputPos) applyFormattingToSelection({ italic });
+        }}
+        setFontFamily={(f) => {
+          setFontFamily(f);
+          if (textInputPos) applyFormattingToSelection({ fontFamily: f });
+        }}
+        preserveTextEditorFocus={!!textInputPos}
       />
 
       {/* Canvas container */}
@@ -787,6 +937,8 @@ export function Whiteboard() {
           className="absolute inset-0 w-full h-full touch-none"
           style={{ cursor: activeCursor }}
           onPointerDown={pointers.handlePointerDown}
+          onClick={handleCanvasClick}
+          onDoubleClick={handleCanvasDoubleClick}
           onPointerMove={(e) => {
             pointers.handlePointerMove(e);
             handleMouseMoveForCursor(e);
@@ -795,6 +947,33 @@ export function Whiteboard() {
           onPointerCancel={pointers.handlePointerCancel}
           onPointerLeave={pointers.handlePointerLeave}
         />
+
+        {/* Rich text editor overlay */}
+        {textInputPos && (
+          <WhiteboardTextEditor
+            ref={textEditorRef}
+            initialRuns={textInputPos.initialRuns}
+            defaultSize={size}
+            defaultColour={colour}
+            defaultFontFamily={fontFamily}
+            defaultBold={textBold}
+            defaultItalic={textItalic}
+            screenX={textInputPos.screenX}
+            screenY={textInputPos.screenY}
+            minWidthPx={textInputPos.minWidthPx}
+            minHeightPx={textInputPos.minHeightPx}
+            scale={editorScale}
+            lightTextColour={lightTextColour}
+            onBlur={() => {
+              commitText();
+            }}
+            onEscape={closeTextInputEditor}
+            onCommit={() => commitText()}
+            onSelectionChange={syncTextToolbarFromSelection}
+            onToggleBoldShortcut={toggleBoldOnSelection}
+            onToggleItalicShortcut={toggleItalicOnSelection}
+          />
+        )}
       </div>
     </div>
   );

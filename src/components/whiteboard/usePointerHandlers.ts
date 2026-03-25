@@ -1,11 +1,6 @@
 import { useCallback } from 'react';
 import type { DrawOp, Point, PointerState } from './types';
-import {
-  CANVAS_WIDTH,
-  CANVAS_HEIGHT,
-  MIN_SCALE,
-  MAX_SCALE,
-} from './types';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, MIN_SCALE, MAX_SCALE } from './types';
 
 export interface PointerHandlers {
   handlePointerDown: (e: React.PointerEvent) => void;
@@ -43,6 +38,8 @@ export function usePointerHandlers(
   // Canvas rendering
   scheduleViewportRender: () => void,
   onScaleChange?: (scale: number) => void,
+  /** When true, non-touch pointer-down will NOT call setPointerCapture. */
+  skipCaptureRef?: React.RefObject<boolean>,
 ): PointerHandlers {
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -82,7 +79,9 @@ export function usePointerHandlers(
         return;
       }
 
-      canvas.setPointerCapture(e.pointerId);
+      if (!skipCaptureRef?.current) {
+        canvas.setPointerCapture(e.pointerId);
+      }
       handleStart(e);
     },
     [
@@ -97,6 +96,7 @@ export function usePointerHandlers(
       getTouchCentroid,
       getTouchDistance,
       handleStart,
+      skipCaptureRef,
     ],
   );
 
@@ -171,10 +171,7 @@ export function usePointerHandlers(
           const prevScale = transformRef.current.scale;
           transformRef.current = clampTransform(nextX, nextY, nextScale);
           hasUserViewportChangeRef.current = true;
-          if (
-            onScaleChange &&
-            transformRef.current.scale !== prevScale
-          ) {
+          if (onScaleChange && transformRef.current.scale !== prevScale) {
             onScaleChange(transformRef.current.scale);
           }
 
