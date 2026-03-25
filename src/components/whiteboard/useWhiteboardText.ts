@@ -405,7 +405,11 @@ export function useWhiteboardText(
     const runs = editor.getRuns();
     const sel = editor.getSelection();
     if (!sel) return null;
-    return getStyleAtOffset(runs, sel.start);
+    // For non-collapsed selections (e.g. caret style markers), offset by +1
+    // so getStyleAtOffset reads the style of the selected content itself
+    // rather than preferring the run to the left of the selection boundary.
+    const offset = sel.start < sel.end ? sel.start + 1 : sel.start;
+    return getStyleAtOffset(runs, offset);
   }, []);
 
   return {

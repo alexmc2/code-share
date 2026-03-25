@@ -10,7 +10,10 @@ function getCachedTextMeasurement(
   defaultSize: number,
   measure: () => ReturnType<typeof measureRichText>,
 ): ReturnType<typeof measureRichText> {
-  const cacheKey = `${op.id}:${op.ts}:${defaultSize}`;
+  // Key on content (runs/text) rather than op.ts, because translateOp/scaleOp
+  // update ts on every pointer event during drag, causing continuous cache misses
+  // even though text measurement doesn't change with position.
+  const cacheKey = `${op.id}:${JSON.stringify(op.runs ?? op.text ?? '')}:${defaultSize}`;
   const cached = textMeasurementCache.get(cacheKey);
   if (cached) {
     return cached;
